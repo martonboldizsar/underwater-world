@@ -9,6 +9,152 @@ export interface OrganicLobe {
   radius: number;
 }
 
+export function setSolidVertexColor(
+  geometry: THREE.BufferGeometry,
+  color: THREE.Color,
+): void {
+  const positions = geometry.getAttribute('position');
+  if (!(positions instanceof THREE.BufferAttribute)) {
+    throw new Error('Vertex-colored animal geometry requires positions.');
+  }
+
+  const colors = new Float32Array(positions.count * 3);
+  for (let vertex = 0; vertex < positions.count; vertex++) {
+    color.toArray(colors, vertex * 3);
+  }
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+}
+
+export function createSmoothTubeGeometry(
+  ringCount: number,
+  radialSegments: number,
+): THREE.BufferGeometry {
+  if (
+    !Number.isInteger(ringCount) ||
+    ringCount < 2 ||
+    !Number.isInteger(radialSegments) ||
+    radialSegments < 3
+  ) {
+    throw new Error('Smooth tube geometry requires at least two rings and three radial segments.');
+  }
+
+  const positions = new Float32Array(ringCount * (radialSegments + 1) * 3);
+  const uvs = new Float32Array(ringCount * (radialSegments + 1) * 2);
+  const indices: number[] = [];
+  for (let ring = 0; ring < ringCount; ring++) {
+    for (let radial = 0; radial <= radialSegments; radial++) {
+      const vertex = ring * (radialSegments + 1) + radial;
+      uvs[vertex * 2] = radial / radialSegments;
+      uvs[vertex * 2 + 1] = ring / (ringCount - 1);
+      if (ring < ringCount - 1 && radial < radialSegments) {
+        const nextRing = vertex + radialSegments + 1;
+        indices.push(
+          vertex,
+          vertex + 1,
+          nextRing,
+          vertex + 1,
+          nextRing + 1,
+          nextRing,
+        );
+      }
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  const positionAttribute = new THREE.BufferAttribute(positions, 3);
+  positionAttribute.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('position', positionAttribute);
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.userData.radialSegments = radialSegments;
+  return geometry;
+}
+
+export function updateSmoothTubeGeometry(
+  geometry: THREE.BufferGeometry,
+  centers: readonly THREE.Vector3[],
+  radii: readonly number[],
+): void {
+  const positions = geometry.getAttribute('position');
+  const radialSegments = geometry.userData.radialSegments;
+  if (
+    !(positions instanceof THREE.BufferAttribute) ||
+    !Number.isInteger(radialSegments) ||
+    centers.length < 2 ||
+    radii.length !== centers.length ||
+    positions.count !== centers.length * (radialSegments + 1)
+  ) {
+    throw new Error('Smooth tube geometry does not match its centerline data.');
+  }
+
+  const tangent = new THREE.Vector3();
+  const reference = new THREE.Vector3();
+  const axisU = new THREE.Vector3();
+  const axisV = new THREE.Vector3();
+  const unitX = new THREE.Vector3(1, 0, 0);
+  const unitY = new THREE.Vector3(0, 1, 0);
+  const centerCount = centers.length;
+  for (let ring = 0; ring < centerCount; ring++) {
+    const center = centers[ring];
+    const radius = radii[ring];
+    const previous = centers[Math.max(0, ring - 1)];
+    const next = centers[Math.min(centerCount - 1, ring + 1)];
+    if (
+      !center ||
+      !previous ||
+      !next ||
+      radius === undefined ||
+      !Number.isFinite(radius) ||
+      radius <= 0
+    ) {
+      throw new Error('Smooth tube centerline contains invalid ring data.');
+    }
+
+    tangent.subVectors(next, previous);
+    if (tangent.lengthSq() < 1e-10) {
+      tangent.copy(unitY);
+    } else {
+      tangent.normalize();
+    }
+    reference.copy(Math.abs(tangent.y) > 0.9 ? unitX : unitY);
+    axisU.crossVectors(tangent, reference).normalize();
+    axisV.crossVectors(tangent, axisU).normalize();
+
+    for (let radial = 0; radial <= radialSegments; radial++) {
+      const angle = (radial / radialSegments) * Math.PI * 2;
+      const offsetU = Math.cos(angle) * radius;
+      const offsetV = Math.sin(angle) * radius;
+      const vertex = ring * (radialSegments + 1) + radial;
+      positions.setXYZ(
+        vertex,
+        center.x + axisU.x * offsetU + axisV.x * offsetV,
+        center.y + axisU.y * offsetU + axisV.y * offsetV,
+        center.z + axisU.z * offsetU + axisV.z * offsetV,
+      );
+    }
+  }
+
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+  const normals = geometry.getAttribute('normal');
+  if (!(normals instanceof THREE.BufferAttribute)) {
+    throw new Error('Smooth tube geometry is missing generated normals.');
+  }
+  const rowSize = radialSegments + 1;
+  for (let ring = 0; ring < centerCount; ring++) {
+    const first = ring * rowSize;
+    const last = first + radialSegments;
+    normals.setXYZ(
+      last,
+      normals.getX(first),
+      normals.getY(first),
+      normals.getZ(first),
+    );
+  }
+  normals.needsUpdate = true;
+  geometry.computeBoundingSphere();
+}
+
 export function createRoundedFinGeometry(
   vertices: readonly number[],
   thickness: number,
@@ -54,7 +200,7 @@ export function createRoundedFinGeometry(
   if (!first) {
     throw new Error('Rounded fin outline is incomplete.');
   }
-  const firstEntry = first.clone().lerp(outline[2] ?? first, 0.14);
+  const firstEntry = first.clone().lerp(outline[2] ?? first, 0.24);
   shape.moveTo(firstEntry.x, firstEntry.y);
   for (let index = 0; index < outline.length; index++) {
     const corner = outline[index];
@@ -64,8 +210,8 @@ export function createRoundedFinGeometry(
       throw new Error('Rounded fin outline is incomplete.');
     }
 
-    const entry = corner.clone().lerp(previous, 0.14);
-    const exit = corner.clone().lerp(following, 0.14);
+    const entry = corner.clone().lerp(previous, 0.24);
+    const exit = corner.clone().lerp(following, 0.24);
     shape.lineTo(entry.x, entry.y);
     shape.quadraticCurveTo(corner.x, corner.y, exit.x, exit.y);
   }
@@ -74,9 +220,9 @@ export function createRoundedFinGeometry(
   const geometry = new THREE.ExtrudeGeometry(shape, {
     depth: thickness,
     bevelEnabled: true,
-    bevelSegments: 3,
-    bevelSize: thickness * 0.25,
-    bevelThickness: thickness * 0.35,
+    bevelSegments: 4,
+    bevelSize: thickness * 0.45,
+    bevelThickness: thickness * 0.45,
     curveSegments: 10,
     steps: 1,
   });
@@ -101,7 +247,7 @@ export function createRoundedFinGeometry(
 export function createOrganicGeometry(
   lobes: readonly OrganicLobe[],
   targetSize: THREE.Vector3,
-  resolution = 32,
+  resolution = 40,
 ): THREE.BufferGeometry {
   if (lobes.length === 0) {
     throw new Error('Organic animal geometry requires at least one lobe.');
@@ -124,6 +270,8 @@ export function createOrganicGeometry(
 
   try {
     const subtract = 20;
+    const volumePadding = 0.08;
+    const volumeScale = 1 - volumePadding * 2;
     for (const lobe of lobes) {
       if (
         !Number.isFinite(lobe.radius) ||
@@ -137,10 +285,10 @@ export function createOrganicGeometry(
       }
 
       effect.addBall(
-        lobe.center[0],
-        lobe.center[1],
-        lobe.center[2],
-        lobe.radius ** 2 * (effect.isolation + subtract),
+        volumePadding + lobe.center[0] * volumeScale,
+        volumePadding + lobe.center[1] * volumeScale,
+        volumePadding + lobe.center[2] * volumeScale,
+        (lobe.radius * volumeScale) ** 2 * (effect.isolation + subtract),
         subtract,
       );
     }

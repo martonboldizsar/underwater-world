@@ -588,7 +588,7 @@ Implement constant swimming, velocity-based orientation, tail animation, random 
 
 Three local rules produce emergent schooling behaviour:
 
-- **Separation:** steer away from nearby fish to avoid collisions.
+- **Separation:** steer away from nearby fish, backed by swept body collisions.
 - **Alignment:** steer toward neighbours' average velocity.
 - **Cohesion:** steer toward neighbours' average position.
 
@@ -632,11 +632,11 @@ Naive neighbour search is O(N²). Use a 3D spatial hash grid for larger populati
 | Tube sponge | Stationary, clustered on shallow rock and coral habitat |
 | Purple sea worm | Crawling along the seabed and cave arches at 15–35 m |
 
-The current scene includes 18 segmented purple worms: 14 crawl over suitable seabed and two crawl along the inner arch of each cave. Cave worms choose new points across a depth-safe section of the arch and tunnel, with occasional pauses, rather than reversing along one fixed line. The western cave floor is slightly deeper than 35 m, so its cave worms stay near the shallow entrance arch. Crabs track seabed height and align their bodies to the local terrain normal. Add each species individually; avoid complex predator-prey simulation initially.
+The current scene includes 18 segmented purple worms: 14 crawl over suitable seabed, two crawl along the top of the western cave roof near its entrance, and two crawl along the inner arch of the eastern cave. Cave worms choose new points across a depth-safe section of their cave surface, with occasional pauses, rather than reversing along one fixed line. The western cave floor is slightly deeper than 35 m, so its cave worms stay near the shallow entrance. Crabs track seabed height and align their bodies to the local terrain normal. Add each species individually; avoid complex predator-prey simulation initially.
 
 Animal models and coral use a shared, subtle procedural fine-grain bump texture to add surface detail without changing their existing colors or markings. Custom animal geometry receives planar UVs when it lacks them; plankton remains untextured, and sponges retain their pore detail.
 
-To avoid a mechanical assembly look, connected forms use smooth-union meshes, flexible eels use a continuously deforming tube, and fins use rounded, beveled surfaces. Keep naturally distinct features such as shells, eyes and tentacles separate but softly joined.
+Where anatomy calls for connected forms, fuse static adjoining masses with smooth-union meshes and use continuous tubes for animated limbs; retain intentional segmentation where it suits the species. Render markings such as shell plates and animal spots as textures or vertex colors rather than raised meshes, and share a surface material across connected skin.
 
 **Acceptance:** Autonomous schools respond to obstacles and the diver; several species have distinct behaviours.
 
@@ -803,7 +803,7 @@ Use a 300 × 300 m map with a shallow starting reef, three raised shallow platea
 
 ### 13.2 Shipwreck
 
-The project uses a procedural wreck built from reusable Three.js geometry rather than an imported model. It is positioned on the seabed and currently has a tapered hull, weathered rust and wood surfaces, deck and cabin details, rigging, an anchor, a propeller, marine growth, scattered debris, and a roaming fish school. Collision against its static triangle surfaces is implemented. Next, add accessible interior rooms and place collectibles or discovery points inside. Keep detailed render meshes separate from simplified colliders where performance requires it.
+The project uses a procedural wreck built from reusable Three.js geometry rather than an imported model. It is positioned on the seabed and currently has a tapered hull, weathered rust and wood surfaces, deck and cabin details, rigging, an anchor, a propeller, marine growth, scattered debris, and a roaming fish school. The diver and swimming animals collide against its static triangle surfaces. Next, add accessible interior rooms and place collectibles or discovery points inside. Keep detailed render meshes separate from simplified colliders where performance requires it.
 
 ### 13.3 Caves
 
@@ -818,13 +818,14 @@ Heightmaps cannot create overhangs or tunnels, so the project adds two independe
 | Small rocks | Bounding spheres |
 | Large rocks | Simplified mesh or compound primitive |
 | Shipwreck / cave | Static triangle mesh or compound collider |
+| Moving animals | Swept bounding spheres against static obstacles and other animals |
 | Diver | Sphere or capsule |
 
-The current custom collision world uses a 0.45 m diver sphere, terrain and surface constraints, bounding spheres for instanced rocks/coral/animals, and triangle surfaces for static meshes such as the shipwreck and cave walls. Moving animals use updated bounding spheres. Seagrass and visual particle groups are non-solid. Movement is swept in short substeps, and contact removes only velocity directed into the obstacle so the diver can slide along it. Toggle `collision debug` in the controls GUI to display triangle edges and bounding spheres.
+The current custom collision world uses a 0.45 m diver sphere, terrain and surface constraints, variable-radius swept spheres for moving animals, bounding spheres for instanced rocks/coral/animals, and triangle surfaces for static meshes such as the shipwreck and cave walls. Animal colliders refresh each frame, ignore their own model, and resolve contact with other animals as well as solid scenery. Clownfish use wider, elevated local orbits and a temporary three-dimensional avoidance offset after contact, so they can clear large rocks and coral instead of repeatedly retracing a blocked path. Seagrass and visual particle groups are non-solid. Movement is swept in short substeps, and contact removes only the inward components of velocity and remaining movement so the diver or animal can slide along the obstacle. Toggle `collision debug` in the controls GUI to display triangle edges and bounding spheres.
 
 Start with custom collisions. Add Rapier or a mesh BVH when complexity warrants it.
 
-**Acceptance:** Multiple recognizable exploration locations; the diver cannot pass through solid geometry, but can swim through seagrass.
+**Acceptance:** Multiple recognizable exploration locations; the diver and mobile animals cannot pass through solid geometry or one another, but can swim through seagrass.
 
 ## 14. Audio
 

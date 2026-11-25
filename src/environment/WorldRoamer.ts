@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createSeededRandom } from '../utils/random.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { Terrain } from './Terrain.js';
 
 export class WorldRoamer {
@@ -14,6 +15,12 @@ export class WorldRoamer {
   private readonly maximumDepthMeters: number;
   private readonly phase: number;
   private readonly terrain: Terrain;
+  private readonly previousPosition = new THREE.Vector3();
+  private readonly displacement = new THREE.Vector3();
+  private readonly collisionVelocity = new THREE.Vector3();
+  private collisionWorld: CollisionWorld | undefined;
+  private collisionRoot: THREE.Object3D | undefined;
+  private collisionRadius = 0;
 
   constructor(
     terrain: Terrain,
@@ -46,6 +53,7 @@ export class WorldRoamer {
   }
 
   update(dt: number, elapsedTime: number, bobAmplitude = 0) {
+    this.previousPosition.copy(this.position);
     let deltaX = this.destination.x - this.current.x;
     let deltaZ = this.destination.y - this.current.y;
     let distance = Math.hypot(deltaX, deltaZ);
@@ -74,6 +82,59 @@ export class WorldRoamer {
       Math.max(seabedHeight + this.clearance, -this.maximumDepthMeters) + bob,
       this.current.y,
     );
+
+    if (this.collisionWorld && this.collisionRoot) {
+      this.displacement.subVectors(this.position, this.previousPosition);
+      const desiredDistance = this.displacement.length();
+      this.collisionVelocity.copy(this.displacement);
+      if (dt > 0) {
+        this.collisionVelocity.divideScalar(dt);
+      }
+      this.position.copy(this.previousPosition);
+      this.collisionWorld.moveSphere(
+        this.position,
+        this.displacement,
+        this.collisionVelocity,
+        {
+          radius: this.collisionRadius,
+          ignoreRoot: this.collisionRoot,
+          refresh: false,
+          debug: false,
+        },
+      );
+      this.current.set(this.position.x, this.position.z);
+      this.displacement
+        .subVectors(this.position, this.previousPosition)
+        .setY(0);
+      if (this.displacement.lengthSq() > 1e-8) {
+        this.direction.copy(this.displacement).normalize();
+      } else if (desiredDistance > 0.02) {
+        this.chooseDestination();
+      }
+
+      const minimumHeight = Math.max(
+        this.terrain.getHeight(this.position.x, this.position.z) +
+          this.clearance,
+        -this.maximumDepthMeters,
+      );
+      this.position.y = Math.max(this.position.y, minimumHeight);
+    }
+  }
+
+  setCollisionWorld(
+    collisionWorld: CollisionWorld,
+    collisionRoot: THREE.Object3D,
+    localRadius: number,
+  ) {
+    if (!Number.isFinite(localRadius) || localRadius <= 0) {
+      throw new Error('World roamer collision radius must be positive.');
+    }
+
+    const worldScale = collisionRoot.getWorldScale(new THREE.Vector3());
+    this.collisionWorld = collisionWorld;
+    this.collisionRoot = collisionRoot;
+    this.collisionRadius =
+      localRadius * Math.max(worldScale.x, worldScale.y, worldScale.z);
   }
 
   private chooseDestination() {

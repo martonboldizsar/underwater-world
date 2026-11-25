@@ -5,6 +5,7 @@ import {
   createRoundedFinGeometry,
   ensurePlanarUv,
 } from './AnimalSurface.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { WorldRoamer } from './WorldRoamer.js';
 import { Terrain } from './Terrain.js';
 
@@ -122,6 +123,10 @@ export class MantaRay {
     }
   }
 
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    this.roamer.setCollisionWorld(collisionWorld, this.group, 1.5);
+  }
+
   dispose() {
     for (const geometry of this.geometries) {
       geometry.dispose();
@@ -210,14 +215,6 @@ export class MantaRay {
       );
       this.model.add(cephalicFin);
     }
-
-    const mouthGeometry = this.trackGeometry(
-      new THREE.SphereGeometry(1, 24, 16),
-    );
-    const mouth = new THREE.Mesh(mouthGeometry, darkMaterial);
-    mouth.position.set(0, -0.075, 1.12);
-    mouth.scale.set(0.3, 0.025, 0.018);
-    this.model.add(mouth);
 
     const tailGeometry = this.trackGeometry(
       new THREE.CylinderGeometry(0.006, 0.045, 1.7, 12),

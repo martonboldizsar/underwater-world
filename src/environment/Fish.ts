@@ -6,6 +6,10 @@ import {
   createOrganicGeometry,
   ensurePlanarUv,
 } from './AnimalSurface.js';
+import type {
+  CollisionWorld,
+  SphereMoveOptions,
+} from '../player/CollisionWorld.js';
 import { Terrain } from './Terrain.js';
 
 export interface FishState {
@@ -40,6 +44,9 @@ export class Fish {
   private readonly heading = new THREE.Vector3();
   private readonly targetOrientation = new THREE.Quaternion();
   private readonly localForward = new THREE.Vector3(0, 0, 1);
+  private readonly displacement = new THREE.Vector3();
+  private collisionWorld: CollisionWorld | undefined;
+  private collisionOptions: SphereMoveOptions | undefined;
   private targetTimer = 0;
 
   constructor(terrain: Terrain, seed = 12, options: FishOptions = {}) {
@@ -108,6 +115,28 @@ export class Fish {
     this.integrate(dt, elapsedTime, diverPosition);
   }
 
+  setCollisionWorld(
+    collisionWorld: CollisionWorld,
+    mesh: THREE.Mesh,
+    instanceIndex: number,
+    radius: number,
+  ) {
+    if (!Number.isInteger(instanceIndex) || instanceIndex < 0) {
+      throw new Error('Fish collision instance index is invalid.');
+    }
+    if (!Number.isFinite(radius) || radius <= 0) {
+      throw new Error('Fish collision radius must be positive.');
+    }
+
+    this.collisionWorld = collisionWorld;
+    this.collisionOptions = {
+      radius,
+      ignoreMesh: mesh,
+      ignoreInstanceIndex: instanceIndex,
+      refresh: false,
+    };
+  }
+
   private integrate(
     dt: number,
     elapsedTime: number,
@@ -120,7 +149,17 @@ export class Fish {
 
     this.state.velocity.addScaledVector(this.state.acceleration, dt);
     this.state.velocity.clampLength(0, this.state.maxSpeed);
-    this.state.position.addScaledVector(this.state.velocity, dt);
+    this.displacement.copy(this.state.velocity).multiplyScalar(dt);
+    if (this.collisionWorld && this.collisionOptions) {
+      this.collisionWorld.moveSphere(
+        this.state.position,
+        this.displacement,
+        this.state.velocity,
+        this.collisionOptions,
+      );
+    } else {
+      this.state.position.add(this.displacement);
+    }
     this.constrainToWorld();
 
     if (this.state.velocity.lengthSq() > 1e-6) {

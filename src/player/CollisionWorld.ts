@@ -3,6 +3,17 @@ import * as THREE from 'three';
 export const DIVER_COLLISION_RADIUS = 0.45;
 const MAX_COLLISION_STEP = DIVER_COLLISION_RADIUS * 0.5;
 const MAX_RESOLUTION_PASSES = 4;
+const COLLISION_CELL_SIZE = 8;
+const MAX_INDEXED_CELLS_PER_COLLIDER = 512;
+
+export interface SphereMoveOptions {
+  radius?: number;
+  ignoreRoot?: THREE.Object3D;
+  ignoreMesh?: THREE.Mesh;
+  ignoreInstanceIndex?: number;
+  refresh?: boolean;
+  debug?: boolean;
+}
 
 const ignoredGroups = new Set([
   'seagrass-meadows',
@@ -50,6 +61,15 @@ export class CollisionWorld {
   private readonly excludedObjects: ReadonlySet<THREE.Object3D>;
   private readonly sphereColliders: SphereCollider[] = [];
   private readonly triangleColliders: TriangleCollider[] = [];
+  private readonly sphereGrid = new Map<string, number[]>();
+  private readonly triangleGrid = new Map<string, number[]>();
+  private readonly globalSphereColliders: number[] = [];
+  private readonly globalTriangleColliders: number[] = [];
+  private sphereVisitStamps = new Uint32Array();
+  private triangleVisitStamps = new Uint32Array();
+  private queryVersion = 0;
+  private readonly nearbySphereColliders: number[] = [];
+  private readonly nearbyTriangleColliders: number[] = [];
   private readonly triangle = new THREE.Triangle();
   private readonly pointA = new THREE.Vector3();
   private readonly pointB = new THREE.Vector3();
@@ -111,6 +131,7 @@ export class CollisionWorld {
         }
       }
     });
+    this.rebuildSpatialIndex();
 
     this.debugGroup.name = 'collision-debug';
     const debugLinePositions = this.triangleColliders.flatMap((collider) =>
@@ -165,23 +186,39 @@ export class CollisionWorld {
     position: THREE.Vector3,
     displacement: THREE.Vector3,
     velocity: THREE.Vector3,
+    options: SphereMoveOptions = {},
   ) {
-    this.diverDebugPosition.copy(position);
-    this.scene.updateMatrixWorld(true);
-    this.refreshDynamicSpheres();
+    const radius = options.radius ?? DIVER_COLLISION_RADIUS;
+    if (!Number.isFinite(radius) || radius <= 0) {
+      throw new Error('Sphere collision radius must be positive.');
+    }
+
+    if (options.debug !== false) {
+      this.diverDebugPosition.copy(position);
+    }
+    if (options.refresh !== false) {
+      this.refresh();
+    }
 
     const distance = displacement.length();
-    const steps = Math.max(1, Math.ceil(distance / MAX_COLLISION_STEP));
+    const maximumStep = Math.min(MAX_COLLISION_STEP, radius * 0.5);
+    const steps = Math.max(1, Math.ceil(distance / maximumStep));
     this.step.copy(displacement).divideScalar(steps);
 
     for (let i = 0; i < steps; i++) {
       position.add(this.step);
-      this.resolveOverlaps(position, velocity);
+      this.resolveOverlaps(position, velocity, radius, options);
     }
 
-    if (this.debugVisibleValue) {
+    if (options.debug !== false && this.debugVisibleValue) {
       this.updateDebugSpheres(position);
     }
+  }
+
+  refresh() {
+    this.scene.updateMatrixWorld(true);
+    this.refreshDynamicSpheres();
+    this.rebuildSpatialIndex();
   }
 
   updateDebug(diverPosition?: THREE.Vector3) {
@@ -192,8 +229,7 @@ export class CollisionWorld {
     if (diverPosition) {
       this.diverDebugPosition.copy(diverPosition);
     }
-    this.scene.updateMatrixWorld(true);
-    this.refreshDynamicSpheres();
+    this.refresh();
     this.updateDebugSpheres(this.diverDebugPosition);
   }
 
@@ -409,26 +445,40 @@ export class CollisionWorld {
   private resolveOverlaps(
     position: THREE.Vector3,
     velocity: THREE.Vector3,
+    radius: number,
+    options: SphereMoveOptions,
   ) {
     for (let pass = 0; pass < MAX_RESOLUTION_PASSES; pass++) {
       let collided = false;
+      this.collectNearbyColliders(position, radius);
 
-      for (const collider of this.sphereColliders) {
+      for (const colliderIndex of this.nearbySphereColliders) {
+        const collider = this.sphereColliders[colliderIndex];
+        if (!collider) {
+          throw new Error('Nearby sphere collider is missing.');
+        }
+        if (this.isIgnored(collider, options)) {
+          continue;
+        }
         if (
           this.resolveSphere(
             position,
             velocity,
             collider.worldSphere,
-            DIVER_COLLISION_RADIUS,
+            radius,
           )
         ) {
           collided = true;
         }
       }
 
-      for (const collider of this.triangleColliders) {
+      for (const colliderIndex of this.nearbyTriangleColliders) {
+        const collider = this.triangleColliders[colliderIndex];
+        if (!collider) {
+          throw new Error('Nearby triangle collider is missing.');
+        }
         if (
-          collider.bounds.distanceToPoint(position) > DIVER_COLLISION_RADIUS
+          collider.bounds.distanceToPoint(position) > radius
         ) {
           continue;
         }
@@ -463,8 +513,7 @@ export class CollisionWorld {
           this.triangle.closestPointToPoint(position, this.closestPoint);
           const distanceSquared = position.distanceToSquared(this.closestPoint);
           if (
-            distanceSquared >=
-            DIVER_COLLISION_RADIUS * DIVER_COLLISION_RADIUS
+            distanceSquared >= radius * radius
           ) {
             continue;
           }
@@ -481,9 +530,10 @@ export class CollisionWorld {
 
           position.addScaledVector(
             this.normal,
-            DIVER_COLLISION_RADIUS - Math.sqrt(distanceSquared),
+            radius - Math.sqrt(distanceSquared),
           );
           this.removeInwardVelocity(velocity);
+          this.removeInwardVelocity(this.step);
           collided = true;
         }
       }
@@ -492,6 +542,182 @@ export class CollisionWorld {
         break;
       }
     }
+  }
+
+  private isIgnored(
+    collider: SphereCollider,
+    options: SphereMoveOptions,
+  ): boolean {
+    if (options.ignoreMesh && collider.mesh === options.ignoreMesh) {
+      return (
+        options.ignoreInstanceIndex === undefined ||
+        collider.instanceIndex === options.ignoreInstanceIndex
+      );
+    }
+    if (!options.ignoreRoot) {
+      return false;
+    }
+
+    for (
+      let ancestor: THREE.Object3D | null = collider.mesh;
+      ancestor;
+      ancestor = ancestor.parent
+    ) {
+      if (ancestor === options.ignoreRoot) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private rebuildSpatialIndex() {
+    this.sphereGrid.clear();
+    this.triangleGrid.clear();
+    this.globalSphereColliders.length = 0;
+    this.globalTriangleColliders.length = 0;
+    if (this.sphereVisitStamps.length !== this.sphereColliders.length) {
+      this.sphereVisitStamps = new Uint32Array(this.sphereColliders.length);
+    }
+    if (this.triangleVisitStamps.length !== this.triangleColliders.length) {
+      this.triangleVisitStamps = new Uint32Array(this.triangleColliders.length);
+    }
+
+    for (let index = 0; index < this.sphereColliders.length; index++) {
+      const collider = this.sphereColliders[index];
+      if (!collider) {
+        throw new Error('Sphere collider is missing while indexing.');
+      }
+      this.addToSpatialGrid(
+        this.sphereGrid,
+        this.globalSphereColliders,
+        index,
+        collider.worldSphere.center,
+        collider.worldSphere.radius,
+      );
+    }
+    for (let index = 0; index < this.triangleColliders.length; index++) {
+      const collider = this.triangleColliders[index];
+      if (!collider) {
+        throw new Error('Triangle collider is missing while indexing.');
+      }
+      this.addToSpatialGrid(
+        this.triangleGrid,
+        this.globalTriangleColliders,
+        index,
+        collider.bounds.center,
+        collider.bounds.radius,
+      );
+    }
+  }
+
+  private addToSpatialGrid(
+    grid: Map<string, number[]>,
+    globalColliders: number[],
+    index: number,
+    center: THREE.Vector3,
+    radius: number,
+  ) {
+    const minX = Math.floor((center.x - radius) / COLLISION_CELL_SIZE);
+    const maxX = Math.floor((center.x + radius) / COLLISION_CELL_SIZE);
+    const minY = Math.floor((center.y - radius) / COLLISION_CELL_SIZE);
+    const maxY = Math.floor((center.y + radius) / COLLISION_CELL_SIZE);
+    const minZ = Math.floor((center.z - radius) / COLLISION_CELL_SIZE);
+    const maxZ = Math.floor((center.z + radius) / COLLISION_CELL_SIZE);
+    const cellCount =
+      (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
+    if (cellCount > MAX_INDEXED_CELLS_PER_COLLIDER) {
+      globalColliders.push(index);
+      return;
+    }
+
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          const key = this.cellKey(x, y, z);
+          let colliders = grid.get(key);
+          if (!colliders) {
+            colliders = [];
+            grid.set(key, colliders);
+          }
+          colliders.push(index);
+        }
+      }
+    }
+  }
+
+  private collectNearbyColliders(position: THREE.Vector3, radius: number) {
+    this.queryVersion = (this.queryVersion + 1) >>> 0;
+    if (this.queryVersion === 0) {
+      this.sphereVisitStamps.fill(0);
+      this.triangleVisitStamps.fill(0);
+      this.queryVersion = 1;
+    }
+    this.nearbySphereColliders.length = 0;
+    this.nearbyTriangleColliders.length = 0;
+
+    const minX = Math.floor((position.x - radius) / COLLISION_CELL_SIZE);
+    const maxX = Math.floor((position.x + radius) / COLLISION_CELL_SIZE);
+    const minY = Math.floor((position.y - radius) / COLLISION_CELL_SIZE);
+    const maxY = Math.floor((position.y + radius) / COLLISION_CELL_SIZE);
+    const minZ = Math.floor((position.z - radius) / COLLISION_CELL_SIZE);
+    const maxZ = Math.floor((position.z + radius) / COLLISION_CELL_SIZE);
+    const addUnique = (
+      visitStamps: Uint32Array,
+      result: number[],
+      index: number,
+    ) => {
+      if (visitStamps[index] === this.queryVersion) {
+        return;
+      }
+      visitStamps[index] = this.queryVersion;
+      result.push(index);
+    };
+
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        for (let z = minZ; z <= maxZ; z++) {
+          const key = this.cellKey(x, y, z);
+          const spheres = this.sphereGrid.get(key);
+          if (spheres) {
+            for (const index of spheres) {
+              addUnique(
+                this.sphereVisitStamps,
+                this.nearbySphereColliders,
+                index,
+              );
+            }
+          }
+          const triangles = this.triangleGrid.get(key);
+          if (triangles) {
+            for (const index of triangles) {
+              addUnique(
+                this.triangleVisitStamps,
+                this.nearbyTriangleColliders,
+                index,
+              );
+            }
+          }
+        }
+      }
+    }
+    for (const index of this.globalSphereColliders) {
+      addUnique(
+        this.sphereVisitStamps,
+        this.nearbySphereColliders,
+        index,
+      );
+    }
+    for (const index of this.globalTriangleColliders) {
+      addUnique(
+        this.triangleVisitStamps,
+        this.nearbyTriangleColliders,
+        index,
+      );
+    }
+  }
+
+  private cellKey(x: number, y: number, z: number): string {
+    return `${x},${y},${z}`;
   }
 
   private resolveSphere(
@@ -521,6 +747,7 @@ export class CollisionWorld {
       minimumDistance - Math.sqrt(distanceSquared),
     );
     this.removeInwardVelocity(velocity);
+    this.removeInwardVelocity(this.step);
     return true;
   }
 

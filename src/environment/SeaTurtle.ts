@@ -5,8 +5,71 @@ import {
   createOrganicGeometry,
   ensurePlanarUv,
 } from './AnimalSurface.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { WorldRoamer } from './WorldRoamer.js';
 import { Terrain } from './Terrain.js';
+
+let shellTexture: THREE.CanvasTexture | undefined;
+
+function getShellTexture(): THREE.CanvasTexture {
+  if (shellTexture) {
+    return shellTexture;
+  }
+
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Unable to create the turtle shell texture.');
+  }
+
+  const random = createSeededRandom(713);
+  const plateColors = ['#68764a', '#748151', '#5f7046', '#7b8757'];
+  context.fillStyle = '#667448';
+  context.fillRect(0, 0, size, size);
+  for (let row = 0; row < 6; row++) {
+    for (let column = 0; column < 6; column++) {
+      const centerX = ((column + 0.5 + (row % 2) * 0.08) / 6) * size;
+      const centerY = ((row + 0.5) / 6) * size;
+      const radiusX = size * (0.075 + random() * 0.012);
+      const radiusY = size * (0.065 + random() * 0.012);
+      context.beginPath();
+      for (let point = 0; point < 7; point++) {
+        const angle = (point / 7) * Math.PI * 2 - Math.PI / 2;
+        const irregularity = 0.88 + random() * 0.24;
+        const x = centerX + Math.cos(angle) * radiusX * irregularity;
+        const y = centerY + Math.sin(angle) * radiusY * irregularity;
+        if (point === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
+      }
+      context.closePath();
+      const color = plateColors[Math.floor(random() * plateColors.length)];
+      if (!color) {
+        throw new Error('Turtle shell plate color is missing.');
+      }
+      context.globalAlpha = 0.22;
+      context.fillStyle = color;
+      context.fill();
+      context.globalAlpha = 0.18;
+      context.strokeStyle = '#c1c89b';
+      context.lineWidth = 2;
+      context.stroke();
+    }
+  }
+  context.globalAlpha = 1;
+
+  shellTexture = new THREE.CanvasTexture(canvas);
+  shellTexture.colorSpace = THREE.SRGBColorSpace;
+  shellTexture.wrapS = THREE.RepeatWrapping;
+  shellTexture.wrapT = THREE.ClampToEdgeWrapping;
+  shellTexture.anisotropy = 4;
+  return shellTexture;
+}
 
 function createFlipperGeometry(
   side: -1 | 1,
@@ -136,6 +199,10 @@ export class SeaTurtle {
     }
   }
 
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    this.roamer.setCollisionWorld(collisionWorld, this.group, 0.8);
+  }
+
   dispose() {
     for (const geometry of this.geometries) {
       geometry.dispose();
@@ -158,28 +225,22 @@ export class SeaTurtle {
       side: THREE.DoubleSide,
     });
     const shellMaterial = new THREE.MeshStandardMaterial({
-      color: '#4d5739',
+      color: '#ffffff',
       roughness: 0.74,
       side: THREE.DoubleSide,
+      map: getShellTexture(),
     });
-    const scuteMaterials = ['#68734b', '#747d51', '#5b6542'].map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.76 }),
-    );
     const eyeMaterial = new THREE.MeshStandardMaterial({
       color: '#17221d',
       roughness: 0.42,
     });
     applyFineGrain(skinMaterial, 0.016);
     applyFineGrain(undersideMaterial, 0.012);
-    applyFineGrain(shellMaterial, 0.025);
-    for (const material of scuteMaterials) {
-      applyFineGrain(material, 0.022);
-    }
+    applyFineGrain(shellMaterial, 0.008);
     this.materials.push(
       skinMaterial,
       undersideMaterial,
       shellMaterial,
-      ...scuteMaterials,
       eyeMaterial,
     );
 
@@ -216,38 +277,6 @@ export class SeaTurtle {
     rim.rotation.x = Math.PI / 2;
     rim.scale.set(1.03, 1.28, 1);
     this.model.add(rim);
-
-    const scuteGeometry = this.trackGeometry(
-      new THREE.SphereGeometry(1, 24, 16),
-    );
-    const scutes = [
-      [0, 0.48],
-      [0, 0],
-      [0, -0.48],
-      [-0.58, 0.28],
-      [0.58, 0.28],
-      [-0.58, -0.34],
-      [0.58, -0.34],
-    ] as const;
-    for (let i = 0; i < scutes.length; i++) {
-      const scutePosition = scutes[i];
-      const material = scuteMaterials[i % scuteMaterials.length];
-      if (!scutePosition || !material) {
-        throw new Error('Turtle shell scute data is incomplete.');
-      }
-
-      const [x, z] = scutePosition;
-      const normalizedRadius =
-        (x / shellScale.x) ** 2 + (z / shellScale.z) ** 2;
-      const y =
-        0.12 +
-        shellScale.y * Math.sqrt(Math.max(0, 1 - normalizedRadius)) +
-        0.025;
-      const scute = new THREE.Mesh(scuteGeometry, material);
-      scute.position.set(x, y, z);
-      scute.scale.set(0.31, 0.035, 0.29);
-      this.model.add(scute);
-    }
 
     const bodyGeometry = this.trackGeometry(
       new THREE.SphereGeometry(1, 30, 20),

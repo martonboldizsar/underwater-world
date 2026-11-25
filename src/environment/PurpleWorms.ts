@@ -19,7 +19,7 @@ interface CavePath {
   maxLocalX: number;
   startDistance: number;
   endDistance: number;
-  insideOffset: number;
+  surfaceOffset: number;
 }
 
 interface CaveWander {
@@ -208,21 +208,23 @@ export class PurpleWorms {
     const cavePaths: CavePath[] = [];
     for (const [index, site] of caveSites.entries()) {
       const isWesternCave = index === 0;
-      const minLocalX = isWesternCave ? -1.5 : -2.4;
-      const maxLocalX = isWesternCave ? -0.8 : 2;
-      const startDistance = isWesternCave ? 1.4 : 2.5;
-      const endDistance = isWesternCave ? 2.6 : 8;
-      const insideOffset = 0.18;
+      const surfaceOffset = isWesternCave ? 0.6 : -0.18;
 
       for (let worm = 0; worm < 2; worm++) {
+        const minLocalX = isWesternCave
+          ? worm === 0 ? -1.6 : -0.8
+          : -2.4;
+        const maxLocalX = isWesternCave
+          ? worm === 0 ? -0.8 : 0
+          : 2;
         const path: CavePath = {
           type: 'cave',
           site,
           minLocalX,
           maxLocalX,
-          startDistance,
-          endDistance,
-          insideOffset,
+          startDistance: isWesternCave ? 5 : 2.5,
+          endDistance: isWesternCave ? 6 : 8,
+          surfaceOffset,
         };
         if (!this.isValidCaveArea(path)) {
           throw new Error(
@@ -239,12 +241,18 @@ export class PurpleWorms {
   }
 
   private addWorm(path: SeabedPath | CavePath) {
+    const isExteriorRoofWorm =
+      path.type === 'cave' && path.surfaceOffset > 0;
     const colorIndex = Math.floor(this.random() * wormColors.length);
-    const color = wormColors[colorIndex];
+    const color = isExteriorRoofWorm
+      ? new THREE.Color('#d95eed')
+      : wormColors[colorIndex];
     if (!color) {
       throw new Error('Purple worm color palette is empty.');
     }
-    const segmentSpacing = 0.16 + this.random() * 0.025;
+    const segmentSpacing = isExteriorRoofWorm
+      ? 0.22 + this.random() * 0.025
+      : 0.16 + this.random() * 0.025;
     const caveWander =
       path.type === 'cave' ? this.createCaveWander(path) : undefined;
     this.worms.push({
@@ -253,7 +261,9 @@ export class PurpleWorms {
       phase: this.random() * Math.PI * 2,
       speed: path.type === 'cave' ? 0.18 + this.random() * 0.11 : 0.32 + this.random() * 0.2,
       segmentSpacing,
-      bodyScale: 0.095 + this.random() * 0.025,
+      bodyScale: isExteriorRoofWorm
+        ? 0.14 + this.random() * 0.02
+        : 0.095 + this.random() * 0.025,
       color,
       points: Array.from(
         { length: segmentsPerWorm },
@@ -522,8 +532,8 @@ export class PurpleWorms {
       worldX,
       this.terrain.getHeight(worldX, worldZ) +
         0.25 +
-        localY * path.site.entranceHeight -
-        path.insideOffset,
+        localY * path.site.entranceHeight +
+        path.surfaceOffset,
       worldZ,
     );
     normal.set(

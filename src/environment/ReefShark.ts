@@ -5,6 +5,7 @@ import {
   createRoundedFinGeometry,
   ensurePlanarUv,
 } from './AnimalSurface.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { WorldRoamer } from './WorldRoamer.js';
 import { Terrain } from './Terrain.js';
 
@@ -79,16 +80,16 @@ export class ReefShark {
     this.group.clear();
   }
 
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    this.roamer.setCollisionWorld(collisionWorld, this.group, 1.2);
+  }
+
   private createModel() {
     const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: '#667b78',
+      color: '#ffffff',
       roughness: 0.68,
       side: THREE.DoubleSide,
-    });
-    const bellyMaterial = new THREE.MeshStandardMaterial({
-      color: '#c6c8b3',
-      roughness: 0.78,
-      side: THREE.DoubleSide,
+      vertexColors: true,
     });
     const finMaterial = new THREE.MeshStandardMaterial({
       color: '#5d716e',
@@ -105,11 +106,9 @@ export class ReefShark {
       roughness: 0.36,
     });
     applyFineGrain(bodyMaterial, 0.018);
-    applyFineGrain(bellyMaterial, 0.012);
     applyFineGrain(finMaterial, 0.014);
     this.materials.push(
       bodyMaterial,
-      bellyMaterial,
       finMaterial,
       darkMaterial,
       eyeMaterial,
@@ -136,22 +135,32 @@ export class ReefShark {
       new THREE.LatheGeometry(bodyProfile, 48),
     );
     bodyGeometry.rotateX(Math.PI / 2);
+    const bodyPositions = bodyGeometry.getAttribute('position');
+    const bodyColors = new Float32Array(bodyPositions.count * 3);
+    const dorsalColor = new THREE.Color('#667b78');
+    const undersideColor = new THREE.Color('#c6c8b3');
+    const surfaceColor = new THREE.Color();
+    for (let vertex = 0; vertex < bodyPositions.count; vertex++) {
+      const undersideAmount = THREE.MathUtils.smoothstep(
+        -bodyPositions.getY(vertex),
+        0.08,
+        0.28,
+      );
+      surfaceColor.copy(dorsalColor).lerp(undersideColor, undersideAmount);
+      surfaceColor.toArray(bodyColors, vertex * 3);
+    }
+    bodyGeometry.setAttribute(
+      'color',
+      new THREE.Float32BufferAttribute(bodyColors, 3),
+    );
     bodyGeometry.computeVertexNormals();
     bodyGeometry.computeBoundingSphere();
     this.model.add(new THREE.Mesh(bodyGeometry, bodyMaterial));
 
-    const bellyGeometry = this.trackGeometry(
-      new THREE.SphereGeometry(1, 28, 18),
-    );
-    const belly = new THREE.Mesh(bellyGeometry, bellyMaterial);
-    belly.position.set(0, -0.28, 0.05);
-    belly.scale.set(0.4, 0.16, 1.06);
-    this.model.add(belly);
-
     const firstDorsal = this.addFin(
       [
         0, 0.32, -0.5,
-        0, 0.96, -0.08,
+        0, 0.8, -0.08,
         0, 0.33, 0.34,
       ],
       finMaterial,
@@ -239,14 +248,6 @@ export class ReefShark {
     const eyeGeometry = this.trackGeometry(
       new THREE.SphereGeometry(0.065, 16, 12),
     );
-    const mouthGeometry = this.trackGeometry(
-      new THREE.SphereGeometry(1, 20, 14),
-    );
-    const mouth = new THREE.Mesh(mouthGeometry, darkMaterial);
-    mouth.position.set(0, -0.09, 1.51);
-    mouth.scale.set(0.22, 0.025, 0.018);
-    this.model.add(mouth);
-
     for (const side of [-1, 1]) {
       const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
       eye.position.set(side * 0.3, 0.13, 1.12);

@@ -32,7 +32,7 @@ const PHYSICS = {
   maxDepthMeters: 40,
   dragCoefficient: 1,
   crossSectionArea: 0.7,
-  thrust: 4_800,
+  thrust: 5_730,
   fastThrustMultiplier: 1.8,
   current: new THREE.Vector3(0.08, 0, 0),
 };

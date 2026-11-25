@@ -5,6 +5,7 @@ import {
   createOrganicGeometry,
   ensurePlanarUv,
 } from './AnimalSurface.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { WorldRoamer } from './WorldRoamer.js';
 import { Terrain } from './Terrain.js';
 
@@ -90,6 +91,10 @@ export class Seahorse {
         Math.sin(elapsedTime * 1.1 + this.phase - joint.segment * 0.45) *
         0.035;
     }
+  }
+
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    this.roamer.setCollisionWorld(collisionWorld, this.group, 0.75);
   }
 
   dispose() {

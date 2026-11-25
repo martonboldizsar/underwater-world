@@ -44,6 +44,11 @@ const canvas = document.querySelector<HTMLCanvasElement>('#experience');
 if (!canvas) {
   throw new Error('Required canvas element "#experience" was not found.');
 }
+const startPrompt = document.querySelector<HTMLButtonElement>('#start-prompt');
+if (!startPrompt) {
+  throw new Error('Required start prompt "#start-prompt" was not found.');
+}
+let hasStarted = false;
 
 const scene = new THREE.Scene();
 const sky = new Sky();
@@ -64,7 +69,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const controls = new PointerLockControls(camera, renderer.domElement);
-renderer.domElement.addEventListener('click', () => controls.lock());
+startPrompt.addEventListener('click', () => controls.lock());
 const flashlight = new THREE.SpotLight(
   '#fff5e6',
   200,
@@ -197,6 +202,17 @@ const lightShafts = new LightShafts(sky.sunPosition);
 scene.add(lightShafts.group);
 const collisionWorld = new CollisionWorld(scene, [terrain.mesh, ocean.mesh]);
 scene.add(collisionWorld.debugGroup);
+fishSchool.setCollisionWorld(collisionWorld);
+clownfish.setCollisionWorld(collisionWorld);
+mantaRay.setCollisionWorld(collisionWorld);
+seaTurtle.setCollisionWorld(collisionWorld);
+reefShark.setCollisionWorld(collisionWorld);
+jellyfish.setCollisionWorld(collisionWorld);
+octopus.setCollisionWorld(collisionWorld);
+seahorse.setCollisionWorld(collisionWorld);
+morayEel.setCollisionWorld(collisionWorld);
+crab.setCollisionWorld(collisionWorld);
+marinePopulation.setCollisionWorld(collisionWorld);
 const diver = new DiverControls(camera, terrain, collisionWorld);
 const breathing = new BreathingSystem();
 const wristComputer = new WristComputer(camera);
@@ -266,6 +282,14 @@ const updateDiveHud = () => {
 };
 updateDiveHud();
 controls.addEventListener('unlock', diver.clearKeys);
+controls.addEventListener('lock', () => {
+  hasStarted = true;
+  startPrompt.hidden = true;
+});
+controls.addEventListener('unlock', () => {
+  startPrompt.textContent = hasStarted ? 'Click to resume' : 'Click to start';
+  startPrompt.hidden = false;
+});
 
 const ambient = new THREE.HemisphereLight('#b8eaff', '#364e43', 1.5);
 scene.add(ambient);
@@ -309,6 +333,7 @@ const diveActions = {
   },
 };
 gui.add(diveActions, 'resetDive').name('reset virtual dive');
+gui.close();
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -327,6 +352,7 @@ renderer.setAnimationLoop(() => {
   elapsedTime += dt;
 
   stats.begin();
+  collisionWorld.refresh();
   const diveActive = controls.isLocked;
   if (diveActive !== wasDiveActive) {
     accumulator = 0;

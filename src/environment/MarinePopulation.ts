@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createSeededRandom } from '../utils/random.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { Crab } from './Crab.js';
 import { ClownfishSchool } from './ClownfishSchool.js';
 import { FishSchool } from './FishSchool.js';
@@ -18,6 +19,7 @@ interface AnimatedAnimal {
   readonly group: THREE.Group;
   update(dt: number, elapsedTime: number): void;
   dispose(): void;
+  setCollisionWorld?(collisionWorld: CollisionWorld): void;
 }
 
 const fishPalettes: readonly (readonly THREE.ColorRepresentation[])[] = [
@@ -75,6 +77,18 @@ export class MarinePopulation {
     }
     for (const animal of this.animals) {
       animal.update(dt, elapsedTime);
+    }
+  }
+
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    for (const school of this.schools) {
+      school.setCollisionWorld(collisionWorld);
+    }
+    for (const school of this.clownfishSchools) {
+      school.setCollisionWorld(collisionWorld);
+    }
+    for (const animal of this.animals) {
+      animal.setCollisionWorld?.(collisionWorld);
     }
   }
 

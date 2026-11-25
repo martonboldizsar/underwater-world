@@ -7,6 +7,9 @@
   </head>
   <body>
     <canvas id="experience"></canvas>
+    <button id="start-prompt" class="start-prompt" type="button">
+      Click to start
+    </button>
     <aside class="dive-hud" aria-label="Virtual dive computer" aria-live="off">
       <section class="hud-card hud-depth" aria-label="Current depth">
         <span class="hud-label">DEPTH</span>
@@ -33,6 +36,19 @@
         </strong>
       </section>
     </aside>
+    <aside class="control-widget" aria-label="Dive controls">
+      <span class="control-widget__title">CONTROLS</span>
+      <ul class="control-widget__list">
+        <li><kbd>WASD</kbd><span>swim</span></li>
+        <li><kbd>SPACE</kbd><kbd>CTRL</kbd><span>up / down</span></li>
+        <li><kbd>SHIFT</kbd><span>faster</span></li>
+        <li><kbd>CLICK</kbd><kbd>MOUSE</kbd><span>look</span></li>
+        <li><kbd>F</kbd><span>flashlight</span></li>
+        <li><kbd>B</kbd><span>computer</span></li>
+        <li><kbd>Q / E</kbd><span>deflate / inflate</span></li>
+        <li><kbd>M</kbd><span>map</span></li>
+      </ul>
+    </aside>
     <aside
       id="exploration-map"
       class="exploration-map"
@@ -58,15 +74,9 @@
         <span><i class="map-marker map-marker--cave"></i>Cave</span>
       </div>
     </aside>
-    <button
-      id="exploration-map-toggle"
-      class="map-toggle"
-      type="button"
-      aria-controls="exploration-map"
-      aria-expanded="false"
-    >
-      Map <kbd>M</kbd>
-    </button>
+    <div class="exit-hint" aria-label="Press Escape to exit">
+      Exit <kbd>ESC</kbd>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

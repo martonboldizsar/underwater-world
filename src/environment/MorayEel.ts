@@ -4,18 +4,14 @@ import {
   applyFineGrain,
   createRoundedFinGeometry,
   ensurePlanarUv,
+  setSolidVertexColor,
 } from './AnimalSurface.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { WorldRoamer } from './WorldRoamer.js';
 import { Terrain } from './Terrain.js';
 
-interface BodySpot {
-  mesh: THREE.Mesh;
-  alongBody: number;
-  side: -1 | 1;
-}
-
-const bodyRingCount = 65;
-const bodyRadialSegments = 16;
+const bodyRingCount = 81;
+const bodyRadialSegments = 24;
 const bodySegmentCount = 16;
 const bodySegmentLength = 0.28;
 const bodyStartZ = 0.72;
@@ -29,7 +25,6 @@ export class MorayEel {
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
   private readonly model = new THREE.Group();
-  private readonly bodySpots: BodySpot[] = [];
   private readonly tailPivot = new THREE.Group();
   private bodyGeometry: THREE.BufferGeometry | undefined;
   private dorsalGeometry: THREE.BufferGeometry | undefined;
@@ -73,6 +68,10 @@ export class MorayEel {
     this.updateBody(elapsedTime);
   }
 
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    this.roamer.setCollisionWorld(collisionWorld, this.group, 0.8);
+  }
+
   dispose() {
     for (const geometry of this.geometries) {
       geometry.dispose();
@@ -85,8 +84,9 @@ export class MorayEel {
 
   private createModel() {
     const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: '#66764d',
+      color: '#ffffff',
       roughness: 0.72,
+      vertexColors: true,
     });
     const bellyMaterial = new THREE.MeshStandardMaterial({
       color: '#c4b47c',
@@ -96,10 +96,6 @@ export class MorayEel {
       color: '#536441',
       roughness: 0.76,
       side: THREE.DoubleSide,
-    });
-    const spotMaterial = new THREE.MeshStandardMaterial({
-      color: '#d3bd7b',
-      roughness: 0.78,
     });
     const darkMaterial = new THREE.MeshStandardMaterial({
       color: '#202c25',
@@ -112,12 +108,10 @@ export class MorayEel {
     applyFineGrain(bodyMaterial, 0.016);
     applyFineGrain(bellyMaterial, 0.012);
     applyFineGrain(finMaterial, 0.012);
-    applyFineGrain(spotMaterial, 0.01);
     this.materials.push(
       bodyMaterial,
       bellyMaterial,
       finMaterial,
-      spotMaterial,
       darkMaterial,
       eyeMaterial,
     );
@@ -125,6 +119,7 @@ export class MorayEel {
     const headGeometry = this.trackGeometry(
       new THREE.SphereGeometry(1, 30, 20),
     );
+    setSolidVertexColor(headGeometry, new THREE.Color('#66764d'));
     const head = new THREE.Mesh(headGeometry, bodyMaterial);
     head.position.set(0, 0.015, 0.9);
     head.scale.set(0.28, 0.24, 0.4);
@@ -138,14 +133,9 @@ export class MorayEel {
     jaw.scale.set(0.21, 0.1, 0.32);
     this.model.add(jaw);
 
-    const mouthGeometry = this.trackGeometry(
+    const detailGeometry = this.trackGeometry(
       new THREE.SphereGeometry(1, 20, 12),
     );
-    const mouth = new THREE.Mesh(mouthGeometry, darkMaterial);
-    mouth.position.set(0, -0.055, 1.2);
-    mouth.scale.set(0.2, 0.025, 0.018);
-    this.model.add(mouth);
-
     const eyeGeometry = this.trackGeometry(
       new THREE.SphereGeometry(0.07, 16, 12),
     );
@@ -154,12 +144,12 @@ export class MorayEel {
       eye.position.set(side * 0.23, 0.1, 1.03);
       this.model.add(eye);
 
-      const pupil = new THREE.Mesh(mouthGeometry, darkMaterial);
+      const pupil = new THREE.Mesh(detailGeometry, darkMaterial);
       pupil.position.set(side * 0.275, 0.1, 1.05);
       pupil.scale.set(0.035, 0.035, 0.035);
       this.model.add(pupil);
 
-      const gill = new THREE.Mesh(mouthGeometry, darkMaterial);
+      const gill = new THREE.Mesh(detailGeometry, darkMaterial);
       gill.position.set(side * 0.26, 0, 0.62);
       gill.scale.set(0.018, 0.1, 0.025);
       this.model.add(gill);
@@ -181,26 +171,10 @@ export class MorayEel {
     this.dorsalGeometry = this.trackGeometry(this.createDorsalGeometry());
     this.model.add(new THREE.Mesh(this.dorsalGeometry, finMaterial));
 
-    const spotGeometry = this.trackGeometry(
-      new THREE.SphereGeometry(1, 14, 10),
-    );
-    for (let segment = 2; segment < bodySegmentCount - 1; segment += 2) {
-      for (const side of [-1, 1] as const) {
-        const spot = new THREE.Mesh(spotGeometry, spotMaterial);
-        const radius = bodyRadius * Math.pow(0.95, segment);
-        spot.scale.set(radius * 0.24, radius * 0.2, radius * 0.1);
-        this.model.add(spot);
-        this.bodySpots.push({
-          mesh: spot,
-          alongBody: segment / bodySegmentCount,
-          side,
-        });
-      }
-    }
-
     const tailTipGeometry = this.trackGeometry(
       new THREE.SphereGeometry(1, 20, 14),
     );
+    setSolidVertexColor(tailTipGeometry, new THREE.Color('#66764d'));
     const tailTip = new THREE.Mesh(tailTipGeometry, bodyMaterial);
     tailTip.position.z = bodyStartZ - bodySegmentLength * bodySegmentCount;
     tailTip.scale.setScalar(bodyRadius * Math.pow(0.95, bodySegmentCount));
@@ -228,15 +202,56 @@ export class MorayEel {
     const uvs = new Float32Array(
       bodyRingCount * (bodyRadialSegments + 1) * 2,
     );
+    const colors = new Float32Array(
+      bodyRingCount * (bodyRadialSegments + 1) * 3,
+    );
     const indices: number[] = [];
     const rowSize = bodyRadialSegments + 1;
+    const skinColor = new THREE.Color('#66764d');
+    const bellyColor = new THREE.Color('#c4b47c');
+    const spotColor = new THREE.Color('#a99d6c');
+    const surfaceColor = new THREE.Color();
 
     for (let ring = 0; ring < bodyRingCount; ring++) {
       const alongBody = ring / (bodyRingCount - 1);
       for (let radial = 0; radial <= bodyRadialSegments; radial++) {
         const index = ring * rowSize + radial;
+        const angle = (radial / bodyRadialSegments) * Math.PI * 2;
         uvs[index * 2] = radial / bodyRadialSegments;
         uvs[index * 2 + 1] = alongBody;
+
+        const bellyAmount = THREE.MathUtils.smoothstep(
+          -Math.sin(angle),
+          0.35,
+          0.9,
+        );
+        surfaceColor.copy(skinColor).lerp(bellyColor, bellyAmount);
+        let spotAmount = 0;
+        for (
+          let spotSegment = 2;
+          spotSegment < bodySegmentCount - 1;
+          spotSegment += 2
+        ) {
+          const spotAlongBody = spotSegment / bodySegmentCount;
+          const alongDistance =
+            Math.abs(alongBody - spotAlongBody) / 0.045;
+          for (const spotAngle of [0, Math.PI]) {
+            const angularDifference = Math.abs(
+              Math.atan2(
+                Math.sin(angle - spotAngle),
+                Math.cos(angle - spotAngle),
+              ),
+            );
+            const angularDistance = angularDifference / 0.42;
+            const distance = Math.hypot(alongDistance, angularDistance);
+            spotAmount = Math.max(
+              spotAmount,
+              1 - THREE.MathUtils.smoothstep(distance, 0.35, 1),
+            );
+          }
+        }
+        surfaceColor.lerp(spotColor, spotAmount * 0.58);
+        surfaceColor.toArray(colors, index * 3);
       }
     }
     for (let ring = 0; ring < bodyRingCount - 1; ring++) {
@@ -255,6 +270,7 @@ export class MorayEel {
       new THREE.Float32BufferAttribute(positions, 3),
     );
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geometry.setIndex(indices);
     return geometry;
   }
@@ -346,20 +362,6 @@ export class MorayEel {
       this.dorsalGeometry.boundingSphere = new THREE.Sphere(
         new THREE.Vector3(0, 0, bodyStartZ - bodyLength / 2),
         bodyLength * 0.56,
-      );
-    }
-
-    for (const spot of this.bodySpots) {
-      const alongBody = spot.alongBody;
-      const centerX =
-        Math.sin(elapsedTime * 2.1 + this.phase - alongBody * 6) *
-        alongBody *
-        0.14;
-      const radius = bodyRadius * Math.pow(0.95, alongBody * bodySegmentCount);
-      spot.mesh.position.set(
-        centerX + spot.side * radius * 0.82,
-        0.01,
-        bodyStartZ - bodyLength * alongBody,
       );
     }
 

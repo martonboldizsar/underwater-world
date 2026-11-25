@@ -4,6 +4,7 @@ import { createSeededRandom } from '../utils/random.js';
 import { applyFineGrain, ensurePlanarUv } from './AnimalSurface.js';
 import { replaceShaderInclude } from './Caustics.js';
 import { Fish, type FishState } from './Fish.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { Terrain } from './Terrain.js';
 import { WorldRoamer } from './WorldRoamer.js';
 
@@ -286,6 +287,27 @@ transformed.x += fishTailWave * 0.34 * aTailWeight;`,
     this.mesh.instanceMatrix.needsUpdate = true;
     this.mesh.computeBoundingBox();
     this.mesh.computeBoundingSphere();
+  }
+
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    const localRadius = this.geometry.boundingSphere?.radius;
+    if (localRadius === undefined || localRadius <= 0) {
+      throw new Error('Fish school geometry has no collision radius.');
+    }
+
+    for (let index = 0; index < this.fish.length; index++) {
+      const fish = this.fish[index];
+      const scale = this.scales[index];
+      if (!fish || scale === undefined) {
+        throw new Error('Fish school collision data is incomplete.');
+      }
+      fish.setCollisionWorld(
+        collisionWorld,
+        this.mesh,
+        index,
+        localRadius * scale,
+      );
+    }
   }
 
   dispose() {

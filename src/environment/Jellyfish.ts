@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createSeededRandom } from '../utils/random.js';
 import { applyFineGrain, ensurePlanarUv } from './AnimalSurface.js';
+import type { CollisionWorld } from '../player/CollisionWorld.js';
 import { WorldRoamer } from './WorldRoamer.js';
 import { Terrain } from './Terrain.js';
 
@@ -77,6 +78,10 @@ export class Jellyfish {
       joint.pivot.rotation.x = Math.sin(wave) * bend;
       joint.pivot.rotation.z = Math.cos(wave) * bend;
     }
+  }
+
+  setCollisionWorld(collisionWorld: CollisionWorld) {
+    this.roamer.setCollisionWorld(collisionWorld, this.group, 1.5);
   }
 
   dispose() {

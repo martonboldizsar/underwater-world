@@ -89,10 +89,6 @@ function getTerrainColor(height: number): [number, number, number] {
 
 export class ExplorationMap {
   private readonly panel = getElement('exploration-map', HTMLElement);
-  private readonly toggleButton = getElement(
-    'exploration-map-toggle',
-    HTMLButtonElement,
-  );
   private readonly canvas = getElement(
     'exploration-map-canvas',
     HTMLCanvasElement,
@@ -121,8 +117,6 @@ export class ExplorationMap {
 
     this.panel.hidden = true;
     this.panel.setAttribute('aria-hidden', 'true');
-    this.toggleButton.setAttribute('aria-expanded', 'false');
-    this.toggleButton.addEventListener('click', this.toggle);
     window.addEventListener('keydown', this.onKeyDown);
   }
 
@@ -178,7 +172,6 @@ export class ExplorationMap {
   }
 
   dispose() {
-    this.toggleButton.removeEventListener('click', this.toggle);
     window.removeEventListener('keydown', this.onKeyDown);
   }
 
@@ -186,7 +179,6 @@ export class ExplorationMap {
     this.visible = !this.visible;
     this.panel.hidden = !this.visible;
     this.panel.setAttribute('aria-hidden', String(!this.visible));
-    this.toggleButton.setAttribute('aria-expanded', String(this.visible));
     this.lastDrawKey = '';
   };
 
