@@ -7,6 +7,66 @@
   </head>
   <body>
     <canvas id="experience"></canvas>
+    <aside class="dive-hud" aria-label="Virtual dive computer" aria-live="off">
+      <section class="hud-card hud-depth" aria-label="Current depth">
+        <span class="hud-label">DEPTH</span>
+        <strong class="hud-value">
+          <span id="hud-depth-value">0.0</span><small>m</small>
+        </strong>
+      </section>
+      <section class="hud-card hud-tank" aria-label="Virtual tank pressure">
+        <span class="hud-label">VIRTUAL TANK</span>
+        <strong class="hud-value" id="hud-tank-pressure-value">0.0 bar</strong>
+      </section>
+      <section class="hud-card hud-heading" aria-label="Compass heading">
+        <span class="hud-label">HEADING</span>
+        <strong class="hud-value" id="hud-heading-value">000° N</strong>
+      </section>
+      <section class="hud-card hud-dive-time" aria-label="Dive time">
+        <span class="hud-label">DIVE TIME</span>
+        <strong class="hud-value" id="hud-dive-time-value">00:00</strong>
+      </section>
+      <section class="hud-card hud-buoyancy" aria-label="Buoyancy status">
+        <span class="hud-label">BUOYANCY</span>
+        <strong class="hud-value" id="hud-buoyancy-value" data-status="neutral">
+          neutral
+        </strong>
+      </section>
+    </aside>
+    <aside
+      id="exploration-map"
+      class="exploration-map"
+      aria-label="Exploration map"
+      aria-hidden="true"
+      hidden
+    >
+      <div class="exploration-map__heading">
+        <span>EXPLORATION MAP</span>
+        <span aria-label="North is up">N ↑</span>
+      </div>
+      <canvas
+        id="exploration-map-canvas"
+        width="360"
+        height="360"
+        aria-label="Terrain map, north is up"
+      ></canvas>
+      <div class="exploration-map__legend" aria-label="Map legend">
+        <span><i class="map-marker map-marker--reef"></i>Reef</span>
+        <span><i class="map-marker map-marker--coral"></i>Coral</span>
+        <span><i class="map-marker map-marker--valley"></i>Valley</span>
+        <span><i class="map-marker map-marker--wreck"></i>Wreck</span>
+        <span><i class="map-marker map-marker--cave"></i>Cave</span>
+      </div>
+    </aside>
+    <button
+      id="exploration-map-toggle"
+      class="map-toggle"
+      type="button"
+      aria-controls="exploration-map"
+      aria-expanded="false"
+    >
+      Map <kbd>M</kbd>
+    </button>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

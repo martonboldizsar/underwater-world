@@ -2,8 +2,6 @@ import * as THREE from 'three';
 import { createSeededRandom } from '../utils/random.js';
 
 const poolSize = 500;
-const breathCycle = 5;
-const exhaleDuration = 1.35;
 const emissionInterval = 0.14;
 
 interface Bubble {
@@ -71,8 +69,13 @@ export class Bubbles {
     this.group.add(this.mesh);
   }
 
-  update(dt: number, elapsedTime: number, camera: THREE.Camera) {
-    this.emitDuringExhale(dt, elapsedTime, camera);
+  update(
+    dt: number,
+    elapsedTime: number,
+    camera: THREE.Camera,
+    isExhaling: boolean,
+  ) {
+    this.emitDuringExhale(dt, camera, isExhaling);
 
     for (let i = 0; i < this.bubbles.length; i++) {
       const bubble = this.bubbles[i];
@@ -118,13 +121,26 @@ export class Bubbles {
     this.group.clear();
   }
 
+  reset() {
+    for (let i = 0; i < this.bubbles.length; i++) {
+      const bubble = this.bubbles[i];
+      if (!bubble) {
+        throw new Error('Bubble pool state is incomplete.');
+      }
+      bubble.active = false;
+      this.setInactiveMatrix(i);
+    }
+    this.emissionTimer = 0;
+    this.nextSlot = 0;
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
   private emitDuringExhale(
     dt: number,
-    elapsedTime: number,
     camera: THREE.Camera,
+    isExhaling: boolean,
   ) {
-    const breathPhase = elapsedTime % breathCycle;
-    if (breathPhase >= exhaleDuration) {
+    if (!isExhaling) {
       this.emissionTimer = 0;
       return;
     }

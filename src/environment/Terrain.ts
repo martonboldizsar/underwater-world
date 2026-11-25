@@ -3,6 +3,12 @@ import { createNoise2D } from 'simplex-noise';
 import { createSeededRandom } from '../utils/random.js';
 import { Caustics } from './Caustics.js';
 
+export const SHALLOW_PLATEAU_CENTERS = [
+  { x: -96, z: -82 },
+  { x: 96, z: -78 },
+  { x: -96, z: 86 },
+] as const;
+
 export class Terrain {
   readonly mesh: THREE.Mesh;
   private readonly noise: (x: number, y: number) => number;
@@ -69,12 +75,35 @@ export class Terrain {
     );
     const baseHeight = THREE.MathUtils.lerp(-40, -12, shallowReef);
     const reliefScale = THREE.MathUtils.lerp(1, 0.18, shallowReef);
+    const plateauInfluence = SHALLOW_PLATEAU_CENTERS.reduce(
+      (influence, center) =>
+        Math.max(
+          influence,
+          1 -
+            THREE.MathUtils.smoothstep(
+              Math.hypot(x - center.x, z - center.z),
+              24,
+              43,
+            ),
+        ),
+      0,
+    );
     const relief =
       this.noise(x * 0.015, z * 0.015) * 7 +
       this.noise(x * 0.06, z * 0.06) * 2 +
       this.noise(x * 0.2, z * 0.2) * 0.35;
 
-    return baseHeight + relief * reliefScale - this.getValleyInfluence(x, z) * 4.5;
+    const plateauReliefScale = THREE.MathUtils.lerp(
+      reliefScale,
+      0.2,
+      plateauInfluence,
+    );
+    return (
+      baseHeight +
+      relief * plateauReliefScale +
+      plateauInfluence * 24 -
+      this.getValleyInfluence(x, z) * 4.5
+    );
   }
 
   getValleyInfluence(x: number, z: number): number {

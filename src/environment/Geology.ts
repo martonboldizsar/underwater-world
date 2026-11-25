@@ -1,46 +1,27 @@
 import * as THREE from 'three';
 import { createSeededRandom } from '../utils/random.js';
 import { Caustics } from './Caustics.js';
-import { Terrain } from './Terrain.js';
+import { createRockGeometry, createRockTexture } from './RockSurface.js';
+import { SHALLOW_PLATEAU_CENTERS, Terrain } from './Terrain.js';
 
 const formationCenters = [
   new THREE.Vector2(-17, 10),
   new THREE.Vector2(17, 10),
   new THREE.Vector2(0, -18),
+  ...SHALLOW_PLATEAU_CENTERS.map(
+    (center) => new THREE.Vector2(center.x, center.z),
+  ),
 ];
 
 const formationRockCount = 7;
 
-function createRockGeometry(seed: number): THREE.BufferGeometry {
-  const geometry = new THREE.IcosahedronGeometry(1, 2);
-  const positions = geometry.attributes.position;
-  const random = createSeededRandom(seed);
-
-  for (let i = 0; i < positions.count; i++) {
-    const scale = 0.9 + random() * 0.2;
-    positions.setXYZ(
-      i,
-      positions.getX(i) * scale,
-      positions.getY(i) * scale,
-      positions.getZ(i) * scale,
-    );
-  }
-
-  positions.needsUpdate = true;
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
 export class Geology {
   readonly group = new THREE.Group();
-  private readonly material = new THREE.MeshStandardMaterial({
-    color: '#ffffff',
-    roughness: 0.95,
-  });
+  private readonly material: THREE.MeshStandardMaterial;
+  private readonly texture: THREE.CanvasTexture;
   private readonly meshes: THREE.InstancedMesh[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
+  private readonly spongeHostMatrices: THREE.Matrix4[] = [];
   private readonly dummy = new THREE.Object3D();
   private readonly colors = ['#596558', '#6c7161', '#797668', '#85816f'].map(
     (color) => new THREE.Color(color),
@@ -51,6 +32,14 @@ export class Geology {
   constructor(terrain: Terrain, seed = 2, caustics?: Caustics) {
     this.terrain = terrain;
     this.random = createSeededRandom(seed);
+    this.texture = createRockTexture(seed + 71);
+    this.material = new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      roughness: 0.96,
+      map: this.texture,
+      bumpMap: this.texture,
+      bumpScale: 0.035,
+    });
     this.group.name = 'geology';
     caustics?.applyToMaterial(this.material);
 
@@ -60,9 +49,13 @@ export class Geology {
     const reefGeometry = this.trackGeometry(createRockGeometry(seed + 53));
 
     this.addScatter(smallGeometry, 200, 0.25, 0.65, 'small rocks');
-    this.addScatter(mediumGeometry, 40, 0.75, 1.5, 'medium rocks');
-    this.addScatter(boulderGeometry, 10, 1.8, 3.2, 'boulders');
+    this.addScatter(mediumGeometry, 40, 0.75, 1.5, 'medium rocks', true);
+    this.addScatter(boulderGeometry, 10, 1.8, 3.2, 'boulders', true);
     this.addFormations(reefGeometry);
+  }
+
+  get spongeHosts(): readonly THREE.Matrix4[] {
+    return this.spongeHostMatrices;
   }
 
   private trackGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
@@ -76,6 +69,7 @@ export class Geology {
     minSize: number,
     maxSize: number,
     name: string,
+    spongeHost = false,
   ) {
     const mesh = new THREE.InstancedMesh(geometry, this.material, count);
     mesh.name = name;
@@ -91,6 +85,7 @@ export class Geology {
         size * (0.8 + this.random() * 0.4),
         size * (0.55 + this.random() * 0.35),
         size * (0.8 + this.random() * 0.4),
+        spongeHost,
       );
     }
 
@@ -122,6 +117,7 @@ export class Geology {
           size * (0.85 + this.random() * 0.3),
           size * (0.65 + this.random() * 0.3),
           size * (0.85 + this.random() * 0.3),
+          true,
         );
       }
     }
@@ -156,6 +152,7 @@ export class Geology {
     scaleX: number,
     scaleY: number,
     scaleZ: number,
+    spongeHost = false,
   ) {
     this.dummy.position.set(
       x,
@@ -170,6 +167,9 @@ export class Geology {
     this.dummy.scale.set(scaleX, scaleY, scaleZ);
     this.dummy.updateMatrix();
     mesh.setMatrixAt(index, this.dummy.matrix);
+    if (spongeHost) {
+      this.spongeHostMatrices.push(this.dummy.matrix.clone());
+    }
     mesh.setColorAt(
       index,
       this.colors[Math.floor(this.random() * this.colors.length)],
@@ -197,6 +197,7 @@ export class Geology {
       geometry.dispose();
     }
     this.material.dispose();
+    this.texture.dispose();
     this.group.clear();
   }
 }

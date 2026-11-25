@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createSeededRandom } from '../utils/random.js';
+import { applyFineGrain, ensurePlanarUv } from './AnimalSurface.js';
 import { replaceShaderInclude } from './Caustics.js';
 import { Fish, type FishState } from './Fish.js';
 import { Terrain } from './Terrain.js';
+import { WorldRoamer } from './WorldRoamer.js';
 
-const fishCount = 30;
+const defaultFishCount = 30;
 const neighborhoodRadius = 9;
 const separationRadius = 2.8;
-const fishTints = ['#fff8e9', '#fff1d8', '#e3f1e7'].map(
-  (color) => new THREE.Color(color),
-);
+const defaultFishTints = ['#fff8e9', '#fff1d8', '#e3f1e7'];
 
 interface FishSnapshot {
   position: THREE.Vector3;
@@ -53,15 +53,7 @@ function createInstancedFishGeometry(template: Fish): THREE.BufferGeometry {
       }
     }
 
-    if (!geometry.attributes.uv) {
-      geometry.setAttribute(
-        'uv',
-        new THREE.Float32BufferAttribute(
-          new Float32Array(positions.count * 2),
-          2,
-        ),
-      );
-    }
+    ensurePlanarUv(geometry);
     geometry.setAttribute(
       'color',
       new THREE.Float32BufferAttribute(colors, 3),
@@ -93,15 +85,10 @@ export class FishSchool {
   cohesionWeight = 1;
 
   private readonly fish: Fish[] = [];
-  private readonly snapshots: FishSnapshot[] = Array.from(
-    { length: fishCount },
-    () => ({ position: new THREE.Vector3(), velocity: new THREE.Vector3() }),
-  );
-  private readonly accelerations: THREE.Vector3[] = Array.from(
-    { length: fishCount },
-    () => new THREE.Vector3(),
-  );
-  private readonly scales = new Float32Array(fishCount);
+  private readonly fishTints: THREE.Color[];
+  private readonly snapshots: FishSnapshot[];
+  private readonly accelerations: THREE.Vector3[];
+  private readonly scales: Float32Array;
   private readonly spatialGrid = new Map<string, number[]>();
   private readonly timeUniform = { value: 0 };
   private readonly geometry: THREE.BufferGeometry;
@@ -120,14 +107,48 @@ export class FishSchool {
   private readonly separationForce = new THREE.Vector3();
   private readonly alignmentForce = new THREE.Vector3();
   private readonly cohesionForce = new THREE.Vector3();
+  private readonly migrationForce = new THREE.Vector3();
+  private readonly desiredMigrationVelocity = new THREE.Vector3();
+  private readonly migrationRoamer: WorldRoamer;
 
-  constructor(terrain: Terrain, seed = 17) {
+  constructor(
+    terrain: Terrain,
+    seed = 17,
+    territoryCenter = new THREE.Vector2(-9, -10),
+    fishCount = defaultFishCount,
+    tintPalette: readonly THREE.ColorRepresentation[] = defaultFishTints,
+  ) {
+    if (!Number.isInteger(fishCount) || fishCount < 1) {
+      throw new Error('A fish school must contain at least one fish.');
+    }
+    if (tintPalette.length === 0) {
+      throw new Error('A fish school needs at least one tint color.');
+    }
+
+    this.fishTints = tintPalette.map((color) => new THREE.Color(color));
+    this.migrationRoamer = new WorldRoamer(
+      terrain,
+      territoryCenter,
+      seed + fishCount + 1,
+      1.1,
+      4.5,
+    );
+    this.snapshots = Array.from(
+      { length: fishCount },
+      () => ({ position: new THREE.Vector3(), velocity: new THREE.Vector3() }),
+    );
+    this.accelerations = Array.from(
+      { length: fishCount },
+      () => new THREE.Vector3(),
+    );
+    this.scales = new Float32Array(fishCount);
     this.group.name = 'reef-fish-school';
+    applyFineGrain(this.material, 0.012);
     const random = createSeededRandom(seed);
     const center = new THREE.Vector3(
-      -9,
-      terrain.getHeight(-9, -10) + 4.5,
-      -10,
+      territoryCenter.x,
+      terrain.getHeight(territoryCenter.x, territoryCenter.y) + 4.5,
+      territoryCenter.y,
     );
 
     for (let i = 0; i < fishCount; i++) {
@@ -135,11 +156,14 @@ export class FishSchool {
       const radius = 1 + Math.sqrt(random()) * 6;
       const x = center.x + Math.cos(angle) * radius;
       const z = center.z + Math.sin(angle) * radius;
-      const y = Math.min(
-        -2.2,
-        Math.max(
-          terrain.getHeight(x, z) + 2.5,
-          center.y + (random() - 0.5) * 3,
+      const y = Math.max(
+        -30,
+        Math.min(
+          -2.2,
+          Math.max(
+            terrain.getHeight(x, z) + 2.5,
+            center.y + (random() - 0.5) * 3,
+          ),
         ),
       );
       const velocity = new THREE.Vector3(
@@ -158,7 +182,7 @@ export class FishSchool {
         autonomous: false,
         renderModel: false,
       });
-      this.scales[i] = 0.82 + random() * 0.32;
+      this.scales[i] = 0.34 + random() * 0.25;
       this.fish.push(fish);
     }
 
@@ -211,7 +235,7 @@ transformed.x += fishTailWave * 0.34 * aTailWeight;`,
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.updateInstanceMatrices();
     for (let i = 0; i < fishCount; i++) {
-      const tint = fishTints[i % fishTints.length];
+      const tint = this.fishTints[i % this.fishTints.length];
       if (!tint) {
         throw new Error('Fish tint palette is empty.');
       }
@@ -227,6 +251,7 @@ transformed.x += fishTailWave * 0.34 * aTailWeight;`,
 
   update(dt: number, elapsedTime: number, diverPosition: THREE.Vector3) {
     this.timeUniform.value = elapsedTime;
+    this.migrationRoamer.update(dt, elapsedTime);
 
     for (let i = 0; i < this.fish.length; i++) {
       const fish = this.fish[i];
@@ -364,40 +389,62 @@ transformed.x += fishTailWave * 0.34 * aTailWeight;`,
     }
 
     result.set(0, 0, 0);
-    if (neighbors === 0) {
-      return;
+    if (neighbors > 0) {
+      this.averageVelocity.divideScalar(neighbors);
+      this.averagePosition.divideScalar(neighbors).sub(current.position);
+      this.calculateSteering(
+        this.separation,
+        current.velocity,
+        state.maxSpeed,
+        state.maxForce,
+        this.separationForce,
+      );
+      this.calculateSteering(
+        this.averageVelocity,
+        current.velocity,
+        state.maxSpeed,
+        state.maxForce,
+        this.alignmentForce,
+      );
+      this.calculateSteering(
+        this.averagePosition,
+        current.velocity,
+        state.maxSpeed,
+        state.maxForce,
+        this.cohesionForce,
+      );
+
+      result
+        .copy(this.separationForce)
+        .multiplyScalar(this.separationWeight)
+        .addScaledVector(this.alignmentForce, this.alignmentWeight)
+        .addScaledVector(this.cohesionForce, this.cohesionWeight)
+        .clampLength(0, state.maxForce * 2);
     }
 
-    this.averageVelocity.divideScalar(neighbors);
-    this.averagePosition.divideScalar(neighbors).sub(current.position);
-    this.calculateSteering(
-      this.separation,
-      current.velocity,
-      state.maxSpeed,
-      state.maxForce,
-      this.separationForce,
+    this.desiredMigrationVelocity.subVectors(
+      this.migrationRoamer.position,
+      current.position,
     );
-    this.calculateSteering(
-      this.averageVelocity,
-      current.velocity,
-      state.maxSpeed,
-      state.maxForce,
-      this.alignmentForce,
-    );
-    this.calculateSteering(
-      this.averagePosition,
-      current.velocity,
-      state.maxSpeed,
-      state.maxForce,
-      this.cohesionForce,
-    );
+    const migrationDistance = this.desiredMigrationVelocity.length();
+    if (migrationDistance < 1e-6) {
+      this.migrationForce.set(0, 0, 0);
+    } else {
+      this.desiredMigrationVelocity
+        .multiplyScalar(
+          (state.maxSpeed * Math.min(1, migrationDistance / 8)) /
+            migrationDistance,
+        )
+        .sub(current.velocity);
+      this.migrationForce
+        .copy(this.desiredMigrationVelocity)
+        .clampLength(0, state.maxForce);
+    }
 
-    result
-      .copy(this.separationForce)
-      .multiplyScalar(this.separationWeight)
-      .addScaledVector(this.alignmentForce, this.alignmentWeight)
-      .addScaledVector(this.cohesionForce, this.cohesionWeight)
-      .clampLength(0, state.maxForce * 2);
+    result.addScaledVector(this.migrationForce, 1.1).clampLength(
+      0,
+      state.maxForce * 2,
+    );
   }
 
   private calculateSteering(

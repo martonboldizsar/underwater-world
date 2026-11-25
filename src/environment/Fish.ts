@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 import { createSeededRandom } from '../utils/random.js';
+import {
+  applyFineGrain,
+  createRoundedFinGeometry,
+  createOrganicGeometry,
+  ensurePlanarUv,
+} from './AnimalSurface.js';
 import { Terrain } from './Terrain.js';
 
 export interface FishState {
@@ -16,18 +22,6 @@ export interface FishOptions {
   velocity?: THREE.Vector3;
   autonomous?: boolean;
   renderModel?: boolean;
-}
-
-function createTriangleGeometry(vertices: number[]): THREE.BufferGeometry {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute(vertices, 3),
-  );
-  geometry.setIndex([0, 1, 2]);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
 }
 
 export class Fish {
@@ -166,15 +160,25 @@ export class Fish {
   }
 
   private createModel() {
-    const bodyGeometry = new THREE.SphereGeometry(1, 20, 14);
+    const bodyGeometry = this.trackGeometry(
+      createOrganicGeometry(
+        [
+          { center: [0.5, 0.5, 0.22], radius: 0.14 },
+          { center: [0.5, 0.5, 0.37], radius: 0.24 },
+          { center: [0.5, 0.5, 0.52], radius: 0.31 },
+          { center: [0.5, 0.5, 0.66], radius: 0.26 },
+          { center: [0.5, 0.5, 0.78], radius: 0.16 },
+        ],
+        new THREE.Vector3(0.76, 0.58, 1.44),
+      ),
+    );
     const bodyMaterial = new THREE.MeshStandardMaterial({
       color: '#e88f43',
       roughness: 0.56,
     });
-    this.geometries.push(bodyGeometry);
+    applyFineGrain(bodyMaterial, 0.014);
     this.materials.push(bodyMaterial);
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.scale.set(0.38, 0.29, 0.72);
     this.group.add(body);
 
     const finMaterial = new THREE.MeshStandardMaterial({
@@ -182,10 +186,14 @@ export class Fish {
       roughness: 0.7,
       side: THREE.DoubleSide,
     });
+    applyFineGrain(finMaterial, 0.009);
     this.materials.push(finMaterial);
 
     const tailGeometry = this.trackGeometry(
-      createTriangleGeometry([0, 0.23, 0, 0, -0.23, 0, 0, 0, -0.5]),
+      createRoundedFinGeometry(
+        [0, 0.23, 0, 0, -0.23, 0, 0, 0, -0.5],
+        0.025,
+      ),
     );
     this.tailPivot.name = 'tail-pivot';
     this.tailPivot.position.z = -0.58;
@@ -195,36 +203,36 @@ export class Fish {
     this.group.add(this.tailPivot);
 
     const dorsalGeometry = this.trackGeometry(
-      createTriangleGeometry([
+      createRoundedFinGeometry([
         0, 0.22, -0.1,
         0, 0.48, -0.27,
         0, 0.22, -0.43,
-      ]),
+      ], 0.02),
     );
     this.group.add(new THREE.Mesh(dorsalGeometry, finMaterial));
 
     const analGeometry = this.trackGeometry(
-      createTriangleGeometry([
+      createRoundedFinGeometry([
         0, -0.2, -0.15,
         0, -0.4, -0.35,
         0, -0.18, -0.48,
-      ]),
+      ], 0.02),
     );
     this.group.add(new THREE.Mesh(analGeometry, finMaterial));
 
     const leftPectoral = this.trackGeometry(
-      createTriangleGeometry([
+      createRoundedFinGeometry([
         -0.28, 0.02, 0.12,
         -0.58, -0.06, -0.18,
         -0.3, -0.15, -0.26,
-      ]),
+      ], 0.02),
     );
     const rightPectoral = this.trackGeometry(
-      createTriangleGeometry([
+      createRoundedFinGeometry([
         0.28, 0.02, 0.12,
         0.58, -0.06, -0.18,
         0.3, -0.15, -0.26,
-      ]),
+      ], 0.02),
     );
     for (const geometry of [leftPectoral, rightPectoral]) {
       const fin = new THREE.Mesh(geometry, finMaterial);
@@ -232,8 +240,8 @@ export class Fish {
       this.group.add(fin);
     }
 
-    const eyeGeometry = new THREE.SphereGeometry(0.07, 10, 8);
-    const pupilGeometry = new THREE.SphereGeometry(0.035, 8, 6);
+    const eyeGeometry = new THREE.SphereGeometry(0.07, 16, 12);
+    const pupilGeometry = new THREE.SphereGeometry(0.035, 12, 8);
     const eyeMaterial = new THREE.MeshStandardMaterial({ color: '#f7e9c9' });
     const pupilMaterial = new THREE.MeshStandardMaterial({
       color: '#12262d',
@@ -341,7 +349,10 @@ export class Fish {
     position.x = x;
     position.z = z;
 
-    const groundLevel = this.terrain.getHeight(position.x, position.z) + 1.2;
+    const groundLevel = Math.max(
+      this.terrain.getHeight(position.x, position.z) + 1.2,
+      -30,
+    );
     const y = THREE.MathUtils.clamp(position.y, groundLevel, -1.2);
     if (y !== position.y) {
       velocity.y = 0;
@@ -350,6 +361,7 @@ export class Fish {
   }
 
   private trackGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+    ensurePlanarUv(geometry);
     this.geometries.push(geometry);
     return geometry;
   }

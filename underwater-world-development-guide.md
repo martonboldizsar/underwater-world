@@ -35,7 +35,7 @@ The player swims through a virtual ocean, explores reefs and wrecks, observes ma
 | Environment | Ocean surface, seabed, rocks, reefs, caves, wrecks |
 | Movement | First-person swimming, inertia, currents, buoyancy |
 | Optics | Absorption, scattering, fog, caustics, sunlight shafts, flashlight |
-| Life | Fish schools, turtles, jellyfish, vegetation |
+| Life | Fish schools, seahorses, large and small jellyfish, turtles, vegetation |
 | Equipment | BCD, virtual tank pressure, compass, wrist computer |
 | Particles | Bubbles, plankton, sediment |
 | Audio | Breathing, bubbles, spatial ambience |
@@ -519,7 +519,7 @@ Start with 8–15 soft transparent light-shaft meshes: varying direction, width,
 
 ### 8.1 Asset library
 
-Create reusable assets for branching coral, brain coral, sea fans, tube sponges, seagrass and kelp. Use [Poly Haven](https://polyhaven.com/), [ambientCG](https://ambientcg.com/), [Sketchfab](https://sketchfab.com/) and [Blender](https://www.blender.org/). Verify each asset's licence and record attribution in an asset manifest.
+Create reusable assets for branching coral, brain coral, sea fans, tube sponges, seagrass and kelp. The current world builds procedural tube-sponge clusters with open pores and varied colours instead of loading an external sponge model. Keep sponges attached to shallow rocks or near coral, and limit them to 20 m depth. Use [Poly Haven](https://polyhaven.com/), [ambientCG](https://ambientcg.com/), [Sketchfab](https://sketchfab.com/) and [Blender](https://www.blender.org/) for future assets. Verify each asset's licence and record attribution in an asset manifest.
 
 ```ts
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -561,7 +561,7 @@ Use distinct per-instance phases and align bending with the simulated current. E
 
 ### 8.4 Habitat placement
 
-Use depth, slope, noise-based habitat density, available sunlight and spacing to determine placement. Generate dense coral gardens, rocky reefs, sandy clearings and seagrass meadows rather than uniform random scattering. Snap instances to terrain and reject steep or unsuitable sites.
+Use depth, slope, noise-based habitat density, available sunlight and spacing to determine placement. Generate dense coral gardens, rocky reefs, sandy clearings and seagrass meadows rather than uniform random scattering. Snap instances to terrain and reject steep or unsuitable sites. Place shallow sponges on exposed rock surfaces and the seabed, with additional clusters near corals; do not place them deeper than 20 m.
 
 **Acceptance:** Natural clusters of coral and vegetation, gently animated plants, reusable and properly licensed assets.
 
@@ -629,8 +629,14 @@ Naive neighbour search is O(N²). Use a 3D spatial hash grid for larger populati
 | Manta ray | Gliding with animated fins |
 | Octopus | Hiding and crawling |
 | Shark | Wide patrol paths |
+| Tube sponge | Stationary, clustered on shallow rock and coral habitat |
+| Purple sea worm | Crawling along the seabed and cave arches at 15–35 m |
 
-Add each species individually; avoid complex predator-prey simulation initially.
+The current scene includes 18 segmented purple worms: 14 crawl over suitable seabed and two crawl along the inner arch of each cave. Cave worms choose new points across a depth-safe section of the arch and tunnel, with occasional pauses, rather than reversing along one fixed line. The western cave floor is slightly deeper than 35 m, so its cave worms stay near the shallow entrance arch. Crabs track seabed height and align their bodies to the local terrain normal. Add each species individually; avoid complex predator-prey simulation initially.
+
+Animal models and coral use a shared, subtle procedural fine-grain bump texture to add surface detail without changing their existing colors or markings. Custom animal geometry receives planar UVs when it lacks them; plankton remains untextured, and sponges retain their pore detail.
+
+To avoid a mechanical assembly look, connected forms use smooth-union meshes, flexible eels use a continuously deforming tube, and fins use rounded, beveled surfaces. Keep naturally distinct features such as shells, eyes and tentacles separate but softly joined.
 
 **Acceptance:** Autonomous schools respond to obstacles and the diver; several species have distinct behaviours.
 
@@ -709,6 +715,8 @@ Alternatively store surface-equivalent gas volume:
 $$V_{BCD}=V_{surface}\frac{P_0}{P_{ambient}}$$
 
 Q/E change the virtual gas quantity; clamp it and account for maximum bladder volume. Gas compresses during descent and expands during ascent. Implement an artificial game movement limit and surface collision. These controls and limits are for gameplay, not real-life ascent or buoyancy advice.
+
+Treat the bladder limit as its actual volume at ambient pressure, and scale the surface-equivalent gas limit with ambient pressure. With the 90 kg diver and 85 L fixed displacement used here, neutral buoyancy needs about 2.8 L of actual BCD gas: about 14 L surface-equivalent at 40 m, still within an 8 L bladder.
 
 Example model: total mass 90 kg, fixed displaced volume 85 L, surface-equivalent BCD gas 8 L, depth 15 m. At that depth pressure is approximately 2.52 bar absolute and gas volume is about 3.21 L. Total displaced volume is approximately 88.21 L. Use `Fnet = rho * g * totalVolumeInCubicMetres - mass * g` for vertical force before drag and thrust.
 
@@ -791,15 +799,15 @@ Include a pause menu, volume controls, mouse sensitivity, camera-bob toggle, gra
 
 ### 13.1 World layout
 
-Use a 300 × 300 m map with a shallow starting reef, coral garden, sandy plateau, shipwreck, cave and deep valley. Give each area distinctive silhouettes, colours, habitat and landmarks. Add a compass and optional exploration map. Design the terrain to make routes interesting without requiring long journeys through empty water.
+Use a 300 × 300 m map with a shallow starting reef, three raised shallow plateaus, a coral garden, sandy plateau, shipwreck, cave and deep valley. Give each area distinctive silhouettes, colours, habitat and landmarks. Add a compass and optional exploration map. Design the terrain to make routes interesting without requiring long journeys through empty water. Keep terrain generation on a fixed seed, but use a separate startup seed to distribute varied schools and animals across the map. Fish schools and swimming animals should roam between waypoints across the map, including a school around the shipwreck; clownfish form local schools around shallow rock formations and seagrass. Swimming species are limited to 30 m depth, while crabs and stationary sea stars stay on the seabed. Keep coral and seagrass in shallow, well-lit habitat, below roughly 25–30 m only where light permits. Sponges occupy exposed shallow rocks and coral areas no deeper than 20 m; purple worms crawl on the seabed and cave surfaces from 15–35 m.
 
 ### 13.2 Shipwreck
 
-Import a wreck model, position on the seabed, add rust and marine growth, scatter debris, introduce resident fish, implement collisions and then add accessible interior rooms. Place collectibles or discovery points inside. Separate detailed render meshes from simplified colliders.
+The project uses a procedural wreck built from reusable Three.js geometry rather than an imported model. It is positioned on the seabed and currently has a tapered hull, weathered rust and wood surfaces, deck and cabin details, rigging, an anchor, a propeller, marine growth, scattered debris, and a roaming fish school. Collision against its static triangle surfaces is implemented. Next, add accessible interior rooms and place collectibles or discovery points inside. Keep detailed render meshes separate from simplified colliders where performance requires it.
 
 ### 13.3 Caves
 
-Heightmaps cannot create overhangs or tunnels. Create independent meshes for an arch entrance, tunnel and interior chamber. Use reduced illumination and local particles; make the torch useful. Test all interior walls and exits.
+Heightmaps cannot create overhangs or tunnels, so the project adds two independent procedural caves with arched entrances, tunnels, widened chambers, darker interior materials and suspended particles. The flashlight is stronger for exploring them, and cave walls use static triangle collisions.
 
 ### 13.4 Collisions
 
@@ -812,9 +820,11 @@ Heightmaps cannot create overhangs or tunnels. Create independent meshes for an 
 | Shipwreck / cave | Static triangle mesh or compound collider |
 | Diver | Sphere or capsule |
 
-Start with custom collisions. Add Rapier or a mesh BVH when complexity warrants it. Use swept movement or substeps to avoid tunnelling. Resolve contact by removing velocity into the collider, rather than freezing all movement. Add debug visualization of colliders.
+The current custom collision world uses a 0.45 m diver sphere, terrain and surface constraints, bounding spheres for instanced rocks/coral/animals, and triangle surfaces for static meshes such as the shipwreck and cave walls. Moving animals use updated bounding spheres. Seagrass and visual particle groups are non-solid. Movement is swept in short substeps, and contact removes only velocity directed into the obstacle so the diver can slide along it. Toggle `collision debug` in the controls GUI to display triangle edges and bounding spheres.
 
-**Acceptance:** Multiple recognizable exploration locations; the diver cannot pass through solid geometry.
+Start with custom collisions. Add Rapier or a mesh BVH when complexity warrants it.
+
+**Acceptance:** Multiple recognizable exploration locations; the diver cannot pass through solid geometry, but can swim through seagrass.
 
 ## 14. Audio
 
@@ -841,7 +851,7 @@ Browsers restrict autoplay. Unlock audio from the start button. Use `THREE.Posit
 ### 15.1 Flashlight
 
 ```ts
-const flashlight = new THREE.SpotLight('#fff5e6', 30, 25, Math.PI / 9, 0.5, 2);
+const flashlight = new THREE.SpotLight('#fff5e6', 200, 40, Math.PI / 6, 0.5, 2);
 flashlight.position.set(0.2, -0.2, 0);
 flashlight.target.position.set(0, 0, -10);
 camera.add(flashlight, flashlight.target);
@@ -973,7 +983,7 @@ Publish `dist/` using Vercel, Netlify or GitHub Pages. Set Vite base paths corre
 - [ ] Implement world boundaries and pause.
 - [ ] Generate procedural seabed.
 - [ ] Apply sand PBR textures.
-- [ ] Implement terrain collision.
+- [x] Implement terrain collision.
 - [ ] Distribute rocks and geology.
 
 ### Milestone 3 — Visually convincing ocean
@@ -991,15 +1001,17 @@ Publish `dist/` using Vercel, Netlify or GitHub Pages. Set Vite base paths corre
 
 - [ ] Import coral GLTF models.
 - [ ] Generate procedural branching coral.
-- [ ] Create animated seagrass.
+- [x] Create animated seagrass.
 - [ ] Generate clustered reef habitats.
 - [ ] Implement individual fish movement.
 - [ ] Implement Boids separation.
 - [ ] Implement Boids alignment.
 - [ ] Implement Boids cohesion.
 - [ ] Add obstacle and diver avoidance.
-- [ ] Add instanced rendering for fish.
-- [ ] Introduce additional marine species.
+- [x] Add instanced rendering for fish.
+- [x] Introduce additional marine species.
+- [x] Add shallow tube sponges and crawling purple worms.
+- [x] Add subtle fine-grain surface detail to animals and coral, excluding plankton.
 - [ ] Create bubble particle pool.
 - [ ] Synchronize bubbles with breathing.
 - [ ] Add plankton and sediment.
@@ -1020,14 +1032,14 @@ Publish `dist/` using Vercel, Netlify or GitHub Pages. Set Vite base paths corre
 
 ### Milestone 6 — Exploration and immersion
 
-- [ ] Import shipwreck model.
-- [ ] Add shipwreck collisions.
-- [ ] Create underwater cave.
+- [x] Build and detail a procedural shipwreck.
+- [x] Add shipwreck collisions.
+- [x] Create two underwater caves.
 - [ ] Create points of interest.
 - [ ] Implement underwater ambient audio.
 - [ ] Synchronize breathing and bubble sounds.
 - [ ] Implement spatial audio.
-- [ ] Implement diving flashlight.
+- [x] Implement diving flashlight.
 - [ ] Add post-processing pipeline.
 - [ ] Add optional photography mode.
 

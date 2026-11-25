@@ -3,16 +3,21 @@ import { createNoise2D } from 'simplex-noise';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createSeededRandom } from '../utils/random.js';
 import { Caustics, replaceShaderInclude } from './Caustics.js';
-import { Terrain } from './Terrain.js';
+import { SHALLOW_PLATEAU_CENTERS, Terrain } from './Terrain.js';
 
-const meadowCenters = [
+const starterMeadowCenters = [
   new THREE.Vector2(-15, -22),
   new THREE.Vector2(15, -22),
   new THREE.Vector2(0, 34),
+  ...SHALLOW_PLATEAU_CENTERS.map(
+    (center) => new THREE.Vector2(center.x, center.z),
+  ),
 ];
+const meadowCount = 9;
 const plantsPerMeadow = 60;
 const grassHeight = 2.2;
 const minimumSpacing = 1.25;
+const minimumMeadowSpacing = 20;
 const grassColors = ['#65935b', '#78a968', '#548b62'].map(
   (color) => new THREE.Color(color),
 );
@@ -81,7 +86,8 @@ export class Seagrass {
     this.habitatNoise = createNoise2D(createSeededRandom(seed + 1));
     this.group.name = 'seagrass-meadows';
 
-    const locations = meadowCenters.flatMap((center) =>
+    const centers = this.createMeadowCenters();
+    const locations = centers.flatMap((center) =>
       this.createMeadow(center, plantsPerMeadow),
     );
     this.geometry = createGrassGeometry(seed);
@@ -173,6 +179,57 @@ transformed.x += sin(seagrassWave) * seagrassStrength * uSeagrassBend;`,
     this.geometry.dispose();
     this.material.dispose();
     this.group.clear();
+  }
+
+  private createMeadowCenters(): THREE.Vector2[] {
+    const centers = starterMeadowCenters.map((center) => center.clone());
+
+    for (
+      let attempt = 0;
+      attempt < 4000 && centers.length < meadowCount;
+      attempt++
+    ) {
+      const x = (this.random() - 0.5) * 110;
+      const z = (this.random() - 0.5) * 110;
+      if (
+        centers.some(
+          (center) =>
+            (center.x - x) ** 2 + (center.y - z) ** 2 <
+            minimumMeadowSpacing ** 2,
+        )
+      ) {
+        continue;
+      }
+
+      const depth = this.terrain.getHeight(x, z);
+      if (depth <= -23 || depth >= -10) {
+        continue;
+      }
+
+      const slopeX =
+        (this.terrain.getHeight(x + 1, z) -
+          this.terrain.getHeight(x - 1, z)) *
+        0.5;
+      const slopeZ =
+        (this.terrain.getHeight(x, z + 1) -
+          this.terrain.getHeight(x, z - 1)) *
+        0.5;
+      const normalY = 1 / Math.sqrt(slopeX ** 2 + slopeZ ** 2 + 1);
+      if (
+        normalY <= 0.85 ||
+        this.habitatNoise(x * 0.12, z * 0.12) < 0.15
+      ) {
+        continue;
+      }
+
+      centers.push(new THREE.Vector2(x, z));
+    }
+
+    if (centers.length < meadowCount) {
+      throw new Error('Unable to find enough suitable locations for seagrass meadows.');
+    }
+
+    return centers;
   }
 
   private createMeadow(

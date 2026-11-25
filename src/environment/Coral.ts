@@ -1,13 +1,17 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createSeededRandom } from '../utils/random.js';
+import { applyFineGrain } from './AnimalSurface.js';
 import { Caustics } from './Caustics.js';
-import { Terrain } from './Terrain.js';
+import { SHALLOW_PLATEAU_CENTERS, Terrain } from './Terrain.js';
 
 const habitatCenters = [
   new THREE.Vector2(-30, 15),
   new THREE.Vector2(30, 14),
   new THREE.Vector2(0, -35),
+  ...SHALLOW_PLATEAU_CENTERS.map(
+    (center) => new THREE.Vector2(center.x, center.z),
+  ),
 ];
 
 const coralColors = ['#e28774', '#d96f83', '#d8a369', '#da8b69'].map(
@@ -113,6 +117,7 @@ export class Coral {
     this.terrain = terrain;
     this.random = createSeededRandom(seed);
     this.group.name = 'coral-gardens';
+    applyFineGrain(this.material, 0.022);
     caustics?.applyToMaterial(this.material);
 
     for (let variant = 0; variant < 3; variant++) {
@@ -122,11 +127,15 @@ export class Coral {
     }
   }
 
+  get plantedSites(): readonly THREE.Vector2[] {
+    return this.plantedLocations;
+  }
+
   private addClusteredInstances(
     geometry: THREE.BufferGeometry,
     variant: number,
   ) {
-    const instancesPerVariant = 9;
+    const instancesPerVariant = 18;
     const mesh = new THREE.InstancedMesh(
       geometry,
       this.material,
