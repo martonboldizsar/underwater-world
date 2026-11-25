@@ -1,0 +1,16 @@
+{
+  "assets": [
+    {
+      "id": "Ground054",
+      "source": "https://ambientcg.com/a/Ground054",
+      "license": "CC0 1.0 Universal",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "credit": "Created using Ground054 from ambientCG.com, licensed under the Creative Commons CC0 1.0 Universal License.",
+      "maps": [
+        "sand/Ground054_Color.jpg",
+        "sand/Ground054_NormalGL.jpg",
+        "sand/Ground054_Roughness.jpg"
+      ]
+    }
+  ]
+}
